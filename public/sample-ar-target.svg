@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" role="img" aria-labelledby="title desc">
+  <title id="title">AR Vision Studio sample target image</title>
+  <desc id="desc">High contrast product launch marker for WebAR preview testing.</desc>
+  <defs>
+    <radialGradient id="g" cx="50%" cy="42%" r="70%">
+      <stop offset="0%" stop-color="#5de7ff" stop-opacity="0.45" />
+      <stop offset="50%" stop-color="#7c3aed" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#050817" />
+    </radialGradient>
+    <linearGradient id="line" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#5de7ff" />
+      <stop offset="100%" stop-color="#a78bfa" />
+    </linearGradient>
+  </defs>
+  <rect width="900" height="900" fill="#050817" />
+  <rect x="42" y="42" width="816" height="816" rx="72" fill="url(#g)" stroke="url(#line)" stroke-width="10" />
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.9" stroke-width="12">
+    <path d="M150 245v-95h95" />
+    <path d="M750 245v-95h-95" />
+    <path d="M150 655v95h95" />
+    <path d="M750 655v95h-95" />
+  </g>
+  <g transform="translate(450 430)">
+    <circle r="170" fill="#050817" fill-opacity="0.68" stroke="#5de7ff" stroke-width="7" />
+    <path d="M-95 70 0-120 95 70H45L22 22h-44l-23 48z" fill="#5de7ff" />
+    <path d="M-9-28h18l30 66H18l-9-22h-18l-9 22h-21z" fill="#a78bfa" opacity="0.85" />
+  </g>
+  <g font-family="Inter, Arial, sans-serif" text-anchor="middle">
+    <text x="450" y="680" fill="#ffffff" font-size="54" font-weight="800" letter-spacing="6">ARVS-LAUNCH-01</text>
+    <text x="450" y="735" fill="#9eeeff" font-size="26" font-weight="700" letter-spacing="4">SCAN WITH MOBILE CAMERA</text>
+  </g>
+  <g fill="#5de7ff" opacity="0.9">
+    <circle cx="246" cy="322" r="16" />
+    <circle cx="672" cy="264" r="13" />
+    <circle cx="650" cy="615" r="18" />
+    <circle cx="285" cy="635" r="12" />
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+packages:
+  - .
+
+onlyBuiltDependencies:
+  - sharp
+ignoredBuiltDependencies:
+  - '@sentry/cli'
+allowBuilds:
+  '@sentry/cli': false
+  sharp: true

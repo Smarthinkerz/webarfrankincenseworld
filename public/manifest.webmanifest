@@ -1,0 +1,10 @@
+{
+  "name": "AR Vision Studio",
+  "short_name": "AR Studio",
+  "description": "Enterprise WebAR campaign studio with Supabase-backed CMS and live preview.",
+  "start_url": "/en",
+  "display": "standalone",
+  "background_color": "#070812",
+  "theme_color": "#5DE7FF",
+  "icons": []
+}

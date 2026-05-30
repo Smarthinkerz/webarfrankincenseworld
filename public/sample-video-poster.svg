@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">AR video poster placeholder</title>
+  <desc id="desc">Preview poster for a product launch video overlay.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#06111f" />
+      <stop offset="45%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#312e81" />
+    </linearGradient>
+    <radialGradient id="halo" cx="42%" cy="38%" r="48%">
+      <stop offset="0%" stop-color="#5de7ff" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#5de7ff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)" />
+  <rect width="1280" height="720" fill="url(#halo)" />
+  <rect x="80" y="70" width="1120" height="580" rx="52" fill="#030712" fill-opacity="0.48" stroke="#5de7ff" stroke-opacity="0.36" stroke-width="3" />
+  <circle cx="640" cy="330" r="94" fill="#5de7ff" fill-opacity="0.18" stroke="#5de7ff" stroke-width="5" />
+  <path d="M615 278v104l92-52z" fill="#ffffff" />
+  <text x="640" y="505" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="54" font-weight="800" text-anchor="middle">Product launch reveal video</text>
+  <text x="640" y="565" fill="#9eeeff" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="700" text-anchor="middle" letter-spacing="3">PLAYS WHEN THE TARGET IMAGE IS DETECTED</text>
+</svg>
