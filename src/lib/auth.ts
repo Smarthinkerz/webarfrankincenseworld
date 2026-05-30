@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation';
 import { isSupabaseConfigured } from './config';
-import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase/server';
+import { createSupabaseServerClient } from './supabase/server';
 
 export type AdminRole = 'super_admin' | 'admin' | 'editor';
+
+const ALLOWED_ADMIN_ROLES = new Set<AdminRole>(['super_admin', 'admin', 'editor']);
 
 export async function getCurrentUser() {
   if (!isSupabaseConfigured()) return null;
@@ -14,15 +16,26 @@ export async function getCurrentUser() {
 
 export async function getAdminRole(userId: string): Promise<AdminRole | null> {
   if (!isSupabaseConfigured()) return null;
-  const supabase = createSupabaseServiceClient();
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser();
+
+  if (userError || !user || user.id !== userId) return null;
+
   const { data, error } = await supabase
     .from('admin_profiles')
     .select('role,status')
-    .eq('user_id', userId)
-    .single();
-  if (error || !data || data.status !== 'approved') return null;
-  if (data.role === 'super_admin' || data.role === 'admin' || data.role === 'editor') return data.role;
-  return null;
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  if (data.status !== 'approved') return null;
+  if (!ALLOWED_ADMIN_ROLES.has(data.role as AdminRole)) return null;
+
+  return data.role as AdminRole;
 }
 
 export async function requireAdmin(locale: string) {
