@@ -122,6 +122,67 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     };
   }, [content.app.videoPlayback, runtimeReady, scannerRequested]);
 
+  useEffect(() => {
+    if (!runtimeReady || !scannerRequested) return;
+
+    const scannerRoot = document.getElementById('purewells-scanner-stage');
+    const scene = document.getElementById('purewells-ar-scene') as HTMLElement | null;
+    if (!scannerRoot || !scene) return;
+
+    const normalizeCameraPreview = () => {
+      Object.assign(scene.style, {
+        position: 'absolute',
+        inset: '0',
+        width: '100%',
+        height: '100%',
+        overflow: 'hidden',
+        background: 'transparent',
+        zIndex: '10',
+      });
+
+      const canvas = scene.querySelector('canvas') as HTMLCanvasElement | null;
+      if (canvas) {
+        Object.assign(canvas.style, {
+          position: 'absolute',
+          inset: '0',
+          width: '100%',
+          height: '100%',
+          background: 'transparent',
+          zIndex: '2',
+        });
+      }
+
+      const cameraVideos = Array.from(scannerRoot.querySelectorAll('video')).filter(
+        (video) => !['purewells-ar-video', 'purewells-direct-video'].includes(video.id)
+      );
+
+      cameraVideos.forEach((cameraVideo) => {
+        Object.assign(cameraVideo.style, {
+          position: 'absolute',
+          inset: '0',
+          width: '100%',
+          height: '100%',
+          maxWidth: 'none',
+          maxHeight: 'none',
+          objectFit: 'cover',
+          background: 'transparent',
+          display: 'block',
+          zIndex: '1',
+        });
+      });
+    };
+
+    const frame = window.requestAnimationFrame(normalizeCameraPreview);
+    const interval = window.setInterval(normalizeCameraPreview, 250);
+    const timeout = window.setTimeout(() => window.clearInterval(interval), 6000);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [runtimeReady, scannerRequested]);
+
   const handleStartScanner = () => {
     if (!canRunCameraScanner) {
       setStatus('Camera scanner cannot start until both the video and tracking dataset are available.');
@@ -178,17 +239,18 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                   <p className="text-xs font-bold uppercase tracking-[0.24em] text-white/45">{showDirectVideo ? 'Campaign video' : 'Camera scanner'}</p>
                   <h2 className="mt-1 text-lg font-black text-white">{content.app.videoTitle}</h2>
                 </div>
-                <div className="relative aspect-[9/14] min-h-[30rem] bg-black" onClick={handleVideoTap} role="presentation">
+                <div id="purewells-scanner-stage" className="relative aspect-[9/14] min-h-[30rem] bg-black" onClick={handleVideoTap} role="presentation">
                   {runtimeReady && scannerRequested ? (
                     <a-scene
+                      id="purewells-ar-scene"
                       key={targetMindSrc}
                       mindar-image={sceneConfig}
                       color-space="sRGB"
-                      renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
+                      renderer="alpha: true; colorManagement: true; physicallyCorrectLights: true; antialias: true"
                       vr-mode-ui="enabled: false"
                       device-orientation-permission-ui="enabled: false"
                       embedded
-                      className="absolute inset-0 h-full w-full"
+                      className="absolute inset-0 z-10 h-full w-full bg-transparent"
                     >
                       <a-assets>
                         <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
@@ -214,7 +276,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                   ) : (
                     <img className="absolute inset-0 h-full w-full object-cover opacity-55" src={posterUrl} alt={`${content.app.videoTitle} poster`} />
                   )}
-                  <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-cyan/25 bg-black/75 p-3 text-left backdrop-blur">
+                  <div className="absolute inset-x-4 bottom-4 z-20 rounded-2xl border border-cyan/25 bg-black/75 p-3 text-left backdrop-blur">
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan">{primaryStateLabel}</p>
                     <p className="mt-1 text-xs leading-5 text-white/70">{status}</p>
                     {!scannerRequested && canRunCameraScanner && (
