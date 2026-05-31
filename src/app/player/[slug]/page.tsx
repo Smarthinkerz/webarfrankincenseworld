@@ -1,9 +1,11 @@
 import { WebArPlayer } from '@/components/webar-player';
-import { defaultCmsContent } from '@/lib/cms-defaults';
+import { getPublishedArCampaignContent } from '@/lib/ar-campaign-store';
+
+export const dynamic = 'force-dynamic';
 
 export default async function PlayerPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const content = defaultCmsContent('en');
-  content.app.slug = slug;
-  return <WebArPlayer content={content} />;
+  const content = await getPublishedArCampaignContent(slug, 'en');
+
+  return <WebArPlayer content={content} entryMode="video" />;
 }

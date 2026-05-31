@@ -14,7 +14,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
       </a>
       <nav className="hidden items-center gap-6 text-sm text-white/70 md:flex" aria-label="Primary navigation">
         <a href={`/${locale}#product`} className="hover:text-white">{t(locale, 'navProduct')}</a>
-        <a href="/player/preview" className="hover:text-white">{t(locale, 'navPlayer')}</a>
+        <a href="/scan/purewells-wacandy-japan" className="hover:text-white">{t(locale, 'navPlayer')}</a>
         <a href={`/${locale}/admin/cms-preview`} className="hover:text-white">{t(locale, 'navAdmin')}</a>
       </nav>
       <ButtonLink href={`/${locale}/admin/login`} variant="secondary">{t(locale, 'navLogin')}</ButtonLink>

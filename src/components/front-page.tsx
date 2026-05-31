@@ -11,7 +11,7 @@ export function FrontPage({ content, locale }: { content: CmsContent; locale: Lo
           <h1 className="max-w-4xl text-5xl font-black leading-tight tracking-[-0.04em] text-white md:text-7xl">{content.frontPage.heroTitle}</h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-white/70">{content.frontPage.heroBody}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/player/preview">{content.frontPage.primaryCta}</ButtonLink>
+            <ButtonLink href="/scan/purewells-wacandy-japan">{content.frontPage.primaryCta}</ButtonLink>
             <ButtonLink href={`/${locale}/admin/cms-preview`} variant="secondary">{content.frontPage.secondaryCta}</ButtonLink>
           </div>
         </div>

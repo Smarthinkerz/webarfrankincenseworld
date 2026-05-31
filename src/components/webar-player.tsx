@@ -132,9 +132,20 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   };
 
   const handleVideoTap = () => {
-    const video = (document.getElementById('purewells-ar-video') ?? document.getElementById('purewells-direct-video')) as HTMLVideoElement | null;
-    if (!video) return;
-    video.play().then(() => setStatus('Video playback started.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
+    const directVideo = document.getElementById('purewells-direct-video') as HTMLVideoElement | null;
+    if (directVideo) {
+      directVideo.play().then(() => setStatus('Video playback started.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
+      return;
+    }
+
+    if (runtimeReady && scannerRequested && !targetDetected) {
+      setStatus('The camera scanner is running, but the image target is not detected yet. Keep the exact Owa Stamp EXPO image flat, bright, and fully inside the camera frame.');
+      return;
+    }
+
+    const arVideo = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
+    if (!arVideo) return;
+    arVideo.play().then(() => setStatus('Target detected. Video playback started over the image.')).catch(() => setStatus('Target detected, but playback is still blocked by the browser. Tap the visible video once.'));
   };
 
   const primaryStateLabel = targetDetected ? 'Target detected' : showDirectVideo ? 'Video ready' : canRunCameraScanner ? 'Ready for camera scan' : hasVideo ? 'Tracking data missing' : 'Video not yet uploaded';
@@ -184,7 +195,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                       </a-assets>
                       <a-camera position="0 0 0" look-controls="enabled: false" />
                       <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
-                        <a-video src="#purewells-ar-video" position="0 0 0" width="1" height="0.5625" rotation="0 0 0" />
+                        <a-video src="#purewells-ar-video" position="0 0 0.01" width="1" height="0.5625" rotation="0 0 0" material="shader: flat" />
                       </a-entity>
                     </a-scene>
                   ) : showDirectVideo ? (
