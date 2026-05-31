@@ -1,7 +1,7 @@
 'use client';
 
 /* eslint-disable @next/next/no-img-element */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CmsContent } from '@/lib/cms-schema';
 
 const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
@@ -55,6 +55,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [targetDetected, setTargetDetected] = useState(false);
   const [videoSoundEnabled, setVideoSoundEnabled] = useState(false);
+  const videoSoundEnabledRef = useRef(false);
   const [status, setStatus] = useState(
     opensInVideoMode
       ? 'The Purewells video is ready. If it does not start automatically, tap Play once.'
@@ -98,7 +99,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!targetEntity || !video) return;
 
     const handleTargetFound = () => {
-      const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabled;
+      const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
       setTargetDetected(true);
       setStatus(
@@ -130,7 +131,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       targetEntity.removeEventListener('targetFound', handleTargetFound);
       targetEntity.removeEventListener('targetLost', handleTargetLost);
     };
-  }, [content.app.videoPlayback, runtimeReady, scannerRequested, videoSoundEnabled]);
+  }, [content.app.videoPlayback, runtimeReady, scannerRequested]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
@@ -199,6 +200,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       return;
     }
     setStatus('Loading camera scanner. If prompted, allow camera access.');
+    videoSoundEnabledRef.current = false;
     setVideoSoundEnabled(false);
     setScannerRequested(true);
   };
@@ -208,6 +210,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (directVideo) {
       directVideo.muted = false;
       directVideo.volume = 1;
+      videoSoundEnabledRef.current = true;
+      setVideoSoundEnabled(true);
       directVideo.play().then(() => setStatus('Video playback started with sound.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
       return;
     }
@@ -221,6 +225,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!arVideo) return;
     arVideo.muted = false;
     arVideo.volume = 1;
+    videoSoundEnabledRef.current = true;
     setVideoSoundEnabled(true);
     arVideo.play().then(() => setStatus('Target detected. Sound is enabled and the video is playing over the image.')).catch(() => setStatus('Target detected, but playback is still blocked by the browser. Tap Enable sound once more.'));
   };
@@ -269,7 +274,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                       className="absolute inset-0 z-10 h-full w-full bg-transparent"
                     >
                       <a-assets>
-                        <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabled} />
+                        <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
                       </a-assets>
                       <a-camera position="0 0 0" look-controls="enabled: false" />
                       <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
