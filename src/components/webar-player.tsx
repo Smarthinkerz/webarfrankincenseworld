@@ -8,6 +8,8 @@ const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
 const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.5.0/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
+const AR_VIDEO_OVERLAY_WIDTH = 1.45;
+const AR_VIDEO_OVERLAY_HEIGHT = 0.815625;
 
 type WebArEntryMode = 'scanner' | 'video';
 
@@ -52,6 +54,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const [scannerRequested, setScannerRequested] = useState(false);
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [targetDetected, setTargetDetected] = useState(false);
+  const [videoSoundEnabled, setVideoSoundEnabled] = useState(false);
   const [status, setStatus] = useState(
     opensInVideoMode
       ? 'The Purewells video is ready. If it does not start automatically, tap Play once.'
@@ -95,14 +98,21 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!targetEntity || !video) return;
 
     const handleTargetFound = () => {
+      const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabled;
+
       setTargetDetected(true);
-      setStatus('Target detected. Playing the Purewells video over the image.');
+      setStatus(
+        shouldStartMuted
+          ? 'Target detected. Video is playing over the image; tap Enable sound once for the music background.'
+          : 'Target detected. Playing the Purewells video with sound over the image.'
+      );
       video.currentTime = 0;
-      video.muted = content.app.videoPlayback === 'autoplay-on-detect';
+      video.volume = 1;
+      video.muted = shouldStartMuted;
       const playback = video.play();
       if (playback) {
         playback.catch(() => {
-          setStatus('Target detected. Tap the video area once to allow playback on this browser.');
+          setStatus('Target detected. Tap Enable sound once to allow video playback on this browser.');
         });
       }
     };
@@ -120,7 +130,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       targetEntity.removeEventListener('targetFound', handleTargetFound);
       targetEntity.removeEventListener('targetLost', handleTargetLost);
     };
-  }, [content.app.videoPlayback, runtimeReady, scannerRequested]);
+  }, [content.app.videoPlayback, runtimeReady, scannerRequested, videoSoundEnabled]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
@@ -189,13 +199,16 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       return;
     }
     setStatus('Loading camera scanner. If prompted, allow camera access.');
+    setVideoSoundEnabled(false);
     setScannerRequested(true);
   };
 
   const handleVideoTap = () => {
     const directVideo = document.getElementById('purewells-direct-video') as HTMLVideoElement | null;
     if (directVideo) {
-      directVideo.play().then(() => setStatus('Video playback started.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
+      directVideo.muted = false;
+      directVideo.volume = 1;
+      directVideo.play().then(() => setStatus('Video playback started with sound.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
       return;
     }
 
@@ -206,7 +219,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
     const arVideo = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
     if (!arVideo) return;
-    arVideo.play().then(() => setStatus('Target detected. Video playback started over the image.')).catch(() => setStatus('Target detected, but playback is still blocked by the browser. Tap the visible video once.'));
+    arVideo.muted = false;
+    arVideo.volume = 1;
+    setVideoSoundEnabled(true);
+    arVideo.play().then(() => setStatus('Target detected. Sound is enabled and the video is playing over the image.')).catch(() => setStatus('Target detected, but playback is still blocked by the browser. Tap Enable sound once more.'));
   };
 
   const primaryStateLabel = targetDetected ? 'Target detected' : showDirectVideo ? 'Video ready' : canRunCameraScanner ? 'Ready for camera scan' : hasVideo ? 'Tracking data missing' : 'Video not yet uploaded';
@@ -253,11 +269,11 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                       className="absolute inset-0 z-10 h-full w-full bg-transparent"
                     >
                       <a-assets>
-                        <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
+                        <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabled} />
                       </a-assets>
                       <a-camera position="0 0 0" look-controls="enabled: false" />
                       <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
-                        <a-video src="#purewells-ar-video" position="0 0 0.01" width="1" height="0.5625" rotation="0 0 0" material="shader: flat" />
+                        <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
                       </a-entity>
                     </a-scene>
                   ) : showDirectVideo ? (
@@ -284,6 +300,11 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                         {showDirectVideo ? 'Open AR scanner' : 'Start camera'}
                       </button>
                     )}
+                    {targetDetected && !videoSoundEnabled && (
+                      <button type="button" onClick={(event) => { event.stopPropagation(); handleVideoTap(); }} className="mt-3 rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-cyan">
+                        Enable sound
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -295,7 +316,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         <aside className="space-y-4">
           <article className="glass rounded-3xl p-5">
             <h3 className="text-lg font-bold text-white">How users open this AR campaign</h3>
-            <p className="mt-2 text-sm leading-6 text-white/60">Use the QR code for direct video playback, or use the normal scan URL for camera-based image-target testing. A phone camera cannot launch WebAR from the image target alone; browser camera access must start inside the page.</p>
+            <p className="mt-2 text-sm leading-6 text-white/60">Use a QR code, NFC tag, or shared link to open this WebAR page in Chrome, Edge, or Safari first, then tap Start camera and scan the printed target image inside the page. A phone camera cannot launch WebAR from the image target alone; browser camera access must start inside the page.</p>
             {(!hasTrackingData || !hasVideo) && (
               <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Production asset checklist</p>
