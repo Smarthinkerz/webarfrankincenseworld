@@ -8,8 +8,8 @@ const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
 const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.5.0/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
-const AR_VIDEO_OVERLAY_WIDTH = 1.45;
-const AR_VIDEO_OVERLAY_HEIGHT = 0.815625;
+const AR_VIDEO_OVERLAY_WIDTH = 2.05;
+const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
 
 type WebArEntryMode = 'scanner' | 'video';
 
@@ -49,7 +49,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const posterUrl = hasValue(content.app.videoPosterUrl) ? content.app.videoPosterUrl : '/sample-video-poster.svg';
   const hasVideo = hasValue(content.app.videoUrl);
   const hasTrackingData = content.app.trackingMode === 'manual-preview' || hasValue(content.app.trackingDataUrl);
-  const trackingLabel = content.app.trackingMode === 'image-target' ? 'Image target detection' : 'Manual preview mode';
   const opensInVideoMode = entryMode === 'video' && hasVideo;
   const [scannerRequested, setScannerRequested] = useState(false);
   const [runtimeReady, setRuntimeReady] = useState(false);
@@ -58,8 +57,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const videoSoundEnabledRef = useRef(false);
   const [status, setStatus] = useState(
     opensInVideoMode
-      ? 'The Purewells video is ready. If it does not start automatically, tap Play once.'
-      : 'Open this URL on your phone, tap Start camera, then point the camera at the printed target image.'
+      ? 'Video is ready. Tap once if your browser blocks playback.'
+      : 'Tap Start camera, allow camera access, then scan the stamp.'
   );
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
@@ -78,12 +77,12 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       .then(() => {
         if (cancelled) return;
         setRuntimeReady(true);
-        setStatus('Camera scanner is ready. Keep the printed target inside the frame.');
+        setStatus('Camera is ready. Keep the stamp flat and inside the frame.');
       })
       .catch(() => {
         if (cancelled) return;
         setRuntimeReady(false);
-        setStatus('The browser could not load the WebAR scanner runtime. Refresh the page on mobile and try again.');
+        setStatus('The scanner could not load. Refresh on your phone and try again.');
       });
 
     return () => {
@@ -102,25 +101,21 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
       setTargetDetected(true);
-      setStatus(
-        shouldStartMuted
-          ? 'Target detected. Video is playing over the image; tap Enable sound once for the music background.'
-          : 'Target detected. Playing the Purewells video with sound over the image.'
-      );
+      setStatus(shouldStartMuted ? 'Stamp detected. Video is playing. Tap Enable sound for audio.' : 'Stamp detected. Video is playing with sound.');
       video.currentTime = 0;
       video.volume = 1;
       video.muted = shouldStartMuted;
       const playback = video.play();
       if (playback) {
         playback.catch(() => {
-          setStatus('Target detected. Tap Enable sound once to allow video playback on this browser.');
+          setStatus('Stamp detected. Tap Enable sound once to allow playback on this phone.');
         });
       }
     };
 
     const handleTargetLost = () => {
       setTargetDetected(false);
-      setStatus('Target lost. Point the camera back at the printed target image to resume the video overlay.');
+      setStatus('Point the camera back at the stamp to resume the video.');
       video.pause();
     };
 
@@ -144,8 +139,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       Object.assign(scene.style, {
         position: 'absolute',
         inset: '0',
-        width: '100%',
-        height: '100%',
+        width: '100vw',
+        height: '100dvh',
         overflow: 'hidden',
         background: 'transparent',
         zIndex: '10',
@@ -196,10 +191,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
   const handleStartScanner = () => {
     if (!canRunCameraScanner) {
-      setStatus('Camera scanner cannot start until both the video and tracking dataset are available.');
+      setStatus('This AR scan is not ready yet because the video or tracking data is missing.');
       return;
     }
-    setStatus('Loading camera scanner. If prompted, allow camera access.');
+    setStatus('Loading camera. If prompted, allow camera access.');
     videoSoundEnabledRef.current = false;
     setVideoSoundEnabled(false);
     setScannerRequested(true);
@@ -212,12 +207,12 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       directVideo.volume = 1;
       videoSoundEnabledRef.current = true;
       setVideoSoundEnabled(true);
-      directVideo.play().then(() => setStatus('Video playback started with sound.')).catch(() => setStatus('Playback is still blocked by the browser. Tap the visible Play button once.'));
+      directVideo.play().then(() => setStatus('Video playback started with sound.')).catch(() => setStatus('Tap the visible Play button once to start sound.'));
       return;
     }
 
     if (runtimeReady && scannerRequested && !targetDetected) {
-      setStatus('The camera scanner is running, but the image target is not detected yet. Keep the exact Owa Stamp EXPO image flat, bright, and fully inside the camera frame.');
+      setStatus('Scanner is running. Keep the stamp flat, bright, and fully inside the camera frame.');
       return;
     }
 
@@ -227,116 +222,89 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     arVideo.volume = 1;
     videoSoundEnabledRef.current = true;
     setVideoSoundEnabled(true);
-    arVideo.play().then(() => setStatus('Target detected. Sound is enabled and the video is playing over the image.')).catch(() => setStatus('Target detected, but playback is still blocked by the browser. Tap Enable sound once more.'));
+    arVideo.play().then(() => setStatus('Sound is enabled. Keep scanning the stamp.')).catch(() => setStatus('Tap Enable sound once more if this phone blocks audio.'));
   };
 
-  const primaryStateLabel = targetDetected ? 'Target detected' : showDirectVideo ? 'Video ready' : canRunCameraScanner ? 'Ready for camera scan' : hasVideo ? 'Tracking data missing' : 'Video not yet uploaded';
+  const primaryStateLabel = targetDetected ? 'Stamp detected' : scannerRequested ? 'Scanning stamp' : canRunCameraScanner ? 'Ready to scan' : hasVideo ? 'Tracking missing' : 'Video missing';
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-8">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.32em] text-cyan/80">Purewells campaign experience</p>
-          <h1 className="mt-2 text-4xl font-black tracking-[-0.03em] text-white">{content.app.name}</h1>
-        </div>
-        <a className="rounded-full border border-white/15 px-5 py-3 text-sm font-bold text-white/75 hover:text-white" href={`/${content.locale}`}>Back to front page</a>
-      </div>
-      <section className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <div className="glass relative min-h-[70vh] overflow-hidden rounded-[2rem] p-5 shadow-glow">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(93,231,255,0.20),transparent_35%),linear-gradient(135deg,rgba(139,92,246,0.12),transparent)]" />
-          <div className="relative grid min-h-[64vh] gap-5 rounded-[1.5rem] border border-white/10 bg-black/35 p-4 lg:grid-cols-[0.72fr_1.28fr] lg:place-items-center">
-            <div className="w-full rounded-[1.5rem] border border-cyan/25 bg-black/35 p-4 shadow-glow">
-              <p className="text-xs font-bold uppercase tracking-[0.26em] text-cyan/75">Scan target</p>
-              <div className="mt-4 overflow-hidden rounded-3xl border border-white/10 bg-white p-3">
-                <img className="aspect-square w-full object-cover" src={targetImageUrl} alt={content.app.targetImageAlt || content.app.targetLabel} />
-              </div>
-              <p className="mt-4 text-sm font-bold text-cyan">{content.app.targetLabel}</p>
-              <p className="mt-2 text-xs leading-5 text-white/55">{trackingLabel}{hasTrackingData ? ' is configured for this experience.' : ' still needs a compiled tracking dataset before production camera detection.'}</p>
-            </div>
+    <main className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-black text-white">
+      <div id="purewells-scanner-stage" className="absolute inset-0 h-full w-full overflow-hidden bg-black" onClick={handleVideoTap} role="presentation">
+        {runtimeReady && scannerRequested ? (
+          <a-scene
+            id="purewells-ar-scene"
+            key={targetMindSrc}
+            mindar-image={sceneConfig}
+            color-space="sRGB"
+            renderer="alpha: true; colorManagement: true; physicallyCorrectLights: true; antialias: true"
+            vr-mode-ui="enabled: false"
+            device-orientation-permission-ui="enabled: false"
+            embedded
+            className="absolute inset-0 z-10 h-full w-full bg-transparent"
+          >
+            <a-assets>
+              <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
+            </a-assets>
+            <a-camera position="0 0 0" look-controls="enabled: false" />
+            <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
+              <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
+            </a-entity>
+          </a-scene>
+        ) : showDirectVideo ? (
+          <video
+            id="purewells-direct-video"
+            className="absolute inset-0 h-full w-full bg-black object-contain"
+            src={content.app.videoUrl}
+            poster={posterUrl}
+            controls
+            autoPlay
+            muted
+            playsInline
+            preload="auto"
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <>
+            <img className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-md" src={targetImageUrl || posterUrl} alt="Frankincense World AR background" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/35 to-black/85" />
+          </>
+        )}
 
-            <div className="w-full text-center">
-              <div className="mx-auto overflow-hidden rounded-[1.75rem] border border-white/10 bg-ink/90 shadow-2xl">
-                <div className="border-b border-white/10 bg-white/[0.04] px-4 py-3 text-left">
-                  <p className="text-xs font-bold uppercase tracking-[0.24em] text-white/45">{showDirectVideo ? 'Campaign video' : 'Camera scanner'}</p>
-                  <h2 className="mt-1 text-lg font-black text-white">{content.app.videoTitle}</h2>
-                </div>
-                <div id="purewells-scanner-stage" className="relative aspect-[9/14] min-h-[30rem] bg-black" onClick={handleVideoTap} role="presentation">
-                  {runtimeReady && scannerRequested ? (
-                    <a-scene
-                      id="purewells-ar-scene"
-                      key={targetMindSrc}
-                      mindar-image={sceneConfig}
-                      color-space="sRGB"
-                      renderer="alpha: true; colorManagement: true; physicallyCorrectLights: true; antialias: true"
-                      vr-mode-ui="enabled: false"
-                      device-orientation-permission-ui="enabled: false"
-                      embedded
-                      className="absolute inset-0 z-10 h-full w-full bg-transparent"
-                    >
-                      <a-assets>
-                        <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
-                      </a-assets>
-                      <a-camera position="0 0 0" look-controls="enabled: false" />
-                      <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
-                        <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
-                      </a-entity>
-                    </a-scene>
-                  ) : showDirectVideo ? (
-                    <video
-                      id="purewells-direct-video"
-                      className="absolute inset-0 h-full w-full bg-black object-contain"
-                      src={content.app.videoUrl}
-                      poster={posterUrl}
-                      controls
-                      autoPlay
-                      muted
-                      playsInline
-                      preload="auto"
-                      crossOrigin="anonymous"
-                    />
-                  ) : (
-                    <img className="absolute inset-0 h-full w-full object-cover opacity-55" src={posterUrl} alt={`${content.app.videoTitle} poster`} />
-                  )}
-                  <div className="absolute inset-x-4 bottom-4 z-20 rounded-2xl border border-cyan/25 bg-black/75 p-3 text-left backdrop-blur">
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan">{primaryStateLabel}</p>
-                    <p className="mt-1 text-xs leading-5 text-white/70">{status}</p>
-                    {!scannerRequested && canRunCameraScanner && (
-                      <button type="button" onClick={handleStartScanner} className="mt-3 rounded-full bg-cyan px-5 py-2 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-white">
-                        {showDirectVideo ? 'Open AR scanner' : 'Start camera'}
-                      </button>
-                    )}
-                    {targetDetected && !videoSoundEnabled && (
-                      <button type="button" onClick={(event) => { event.stopPropagation(); handleVideoTap(); }} className="mt-3 rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-cyan">
-                        Enable sound
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <h3 className="mt-8 text-3xl font-black tracking-[-0.02em]">{content.app.headline}</h3>
-              <p className="mx-auto mt-4 max-w-xl text-white/65">{opensInVideoMode ? 'This QR entry opens the campaign video first. Use Open AR scanner if you want to test target-image camera detection.' : content.app.instructions}</p>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/80 to-transparent px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3 rounded-full border border-white/15 bg-black/45 px-4 py-3 backdrop-blur-md">
+            <div>
+              <p className="text-[0.68rem] font-black uppercase tracking-[0.22em] text-cyan">Frankincense World AR</p>
+              <p className="mt-1 text-xs font-semibold text-white/75">{primaryStateLabel}</p>
             </div>
+            <div className={`h-3 w-3 rounded-full ${targetDetected ? 'bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.9)]' : scannerRequested ? 'bg-cyan shadow-[0_0_18px_rgba(93,231,255,0.8)]' : 'bg-white/50'}`} />
           </div>
         </div>
-        <aside className="space-y-4">
-          <article className="glass rounded-3xl p-5">
-            <h3 className="text-lg font-bold text-white">How users open this AR campaign</h3>
-            <p className="mt-2 text-sm leading-6 text-white/60">Use a QR code, NFC tag, or shared link to open this WebAR page in Chrome, Edge, or Safari first, then tap Start camera and scan the printed target image inside the page. A phone camera cannot launch WebAR from the image target alone; browser camera access must start inside the page.</p>
-            {(!hasTrackingData || !hasVideo) && (
-              <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Production asset checklist</p>
-                <p className="mt-2 text-xs leading-5 text-amber-50/75">{!hasTrackingData && !hasVideo ? 'Tracking data and video are still pending.' : !hasTrackingData ? 'Tracking data is still pending.' : 'Video is still pending.'} The page stays usable for preview and will automatically use the configured assets once they are available.</p>
-              </div>
+
+        {!scannerRequested && !showDirectVideo && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center px-6 py-10">
+            <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp</p>
+              <h1 className="mt-4 text-3xl font-black leading-tight tracking-[-0.04em] text-white">Open camera and scan</h1>
+              <p className="mt-4 text-sm leading-6 text-white/70">Tap Start camera, allow camera access, then point your phone at the stamp. The video will play on the stamp.</p>
+              <button type="button" onClick={handleStartScanner} className="mt-6 w-full rounded-full bg-cyan px-6 py-4 text-sm font-black uppercase tracking-[0.18em] text-ink shadow-[0_0_28px_rgba(93,231,255,0.45)] transition hover:bg-white">
+                Start camera
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 to-transparent px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12">
+          <div className="mx-auto max-w-xl rounded-3xl border border-white/15 bg-black/62 p-4 text-left backdrop-blur-md">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan">{primaryStateLabel}</p>
+            <p className="mt-1 text-sm leading-5 text-white/80">{status}</p>
+            {targetDetected && !videoSoundEnabled && (
+              <button type="button" onClick={(event) => { event.stopPropagation(); handleVideoTap(); }} className="pointer-events-auto mt-3 w-full rounded-full bg-white px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-cyan">
+                Enable sound
+              </button>
             )}
-          </article>
-          {content.app.overlays.map((overlay) => (
-            <article className="glass rounded-3xl p-5" key={overlay.title}>
-              <h3 className="text-lg font-bold text-white">{overlay.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-white/60">{overlay.body}</p>
-            </article>
-          ))}
-        </aside>
-      </section>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
