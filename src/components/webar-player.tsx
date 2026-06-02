@@ -299,7 +299,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             <p className="mt-1 text-sm leading-5 text-white/80">{status}</p>
             {targetDetected && !videoSoundEnabled && (
               <button type="button" onClick={(event) => { event.stopPropagation(); handleVideoTap(); }} className="pointer-events-auto mt-3 w-full rounded-full bg-white px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-cyan">
-                Enable sound
+                Enable sound / サウンドON
               </button>
             )}
           </div>
