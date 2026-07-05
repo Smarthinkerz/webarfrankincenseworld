@@ -80,8 +80,16 @@ async function remoteAssetExists(url: string) {
   if (!isRemoteAssetUrl(url)) return true;
 
   try {
-    const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(3500) });
-    return response.ok;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    try {
+      const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: controller.signal });
+      clearTimeout(timer);
+      return response.ok;
+    } catch {
+      clearTimeout(timer);
+      return false;
+    }
   } catch {
     return false;
   }

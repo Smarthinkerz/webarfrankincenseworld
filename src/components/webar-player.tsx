@@ -6,12 +6,27 @@ import type { CmsContent } from '@/lib/cms-schema';
 
 const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
-const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.5.0/aframe.min.js';
+const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.4.2/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
 const AR_VIDEO_OVERLAY_WIDTH = 2.05;
 const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
 
 type WebArEntryMode = 'scanner' | 'video';
+
+/**
+ * Detect whether the current device supports WebGL (1 or 2).
+ * Returns 'webgl2', 'webgl1', or 'none'.
+ */
+function detectWebGLSupport(): 'webgl2' | 'webgl1' | 'none' {
+  try {
+    const canvas = document.createElement('canvas');
+    if (canvas.getContext('webgl2')) return 'webgl2';
+    if (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) return 'webgl1';
+    return 'none';
+  } catch {
+    return 'none';
+  }
+}
 
 function hasValue(value: string) {
   return value.trim().length > 0;
@@ -54,6 +69,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [targetDetected, setTargetDetected] = useState(false);
   const [videoSoundEnabled, setVideoSoundEnabled] = useState(false);
+  const [webglUnsupported] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return detectWebGLSupport() === 'none';
+  });
   const videoSoundEnabledRef = useRef(false);
   const [status, setStatus] = useState(
     opensInVideoMode
@@ -69,7 +88,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const showDirectVideo = opensInVideoMode && !runtimeReady;
 
   useEffect(() => {
-    if (!scannerRequested || !canRunCameraScanner) return;
+    if (!scannerRequested || !canRunCameraScanner || webglUnsupported) return;
     let cancelled = false;
 
     loadScript(AFRAME_SCRIPT_ID, AFRAME_SCRIPT_SRC)
@@ -88,7 +107,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     return () => {
       cancelled = true;
     };
-  }, [canRunCameraScanner, scannerRequested]);
+  }, [canRunCameraScanner, scannerRequested, webglUnsupported]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
@@ -140,11 +159,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         position: 'absolute',
         inset: '0',
         width: '100vw',
-        height: '100dvh',
+        height: '100vh',
         overflow: 'hidden',
         background: 'transparent',
         zIndex: '10',
       });
+      /* Progressive enhancement: apply 100dvh for modern browsers that support it */
+      scene.style.setProperty('height', '100dvh');
 
       const canvas = scene.querySelector('canvas') as HTMLCanvasElement | null;
       if (canvas) {
@@ -228,7 +249,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const primaryStateLabel = targetDetected ? 'Stamp detected' : scannerRequested ? 'Scanning stamp' : canRunCameraScanner ? 'Ready to scan' : hasVideo ? 'Tracking missing' : 'Video missing';
 
   return (
-    <main className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-black text-white">
+    <main className="fixed inset-0 h-screen w-screen overflow-hidden bg-black text-white" style={{ height: '100dvh' }}>
       <div id="purewells-scanner-stage" className="absolute inset-0 h-full w-full overflow-hidden bg-black" onClick={handleVideoTap} role="presentation">
         {runtimeReady && scannerRequested ? (
           <a-scene
@@ -243,7 +264,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             className="absolute inset-0 z-10 h-full w-full bg-transparent"
           >
             <a-assets>
-              <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
+              <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline webkit-playsinline="" crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
             </a-assets>
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
@@ -260,6 +281,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             autoPlay
             muted
             playsInline
+            webkit-playsinline=""
             preload="auto"
             crossOrigin="anonymous"
           />
@@ -280,7 +302,22 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
           </div>
         </div>
 
-        {!scannerRequested && !showDirectVideo && (
+        {webglUnsupported && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center px-6 py-10">
+            <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-red-400">Unsupported Browser</p>
+              <h1 className="mt-4 text-2xl font-black leading-tight tracking-[-0.04em] text-white">Update Required</h1>
+              <p className="mt-4 text-sm leading-6 text-white/70">
+                Your browser does not support WebGL, which is required for the AR experience. Please update your browser to the latest version, or try opening this page on a different device.
+              </p>
+              <p className="mt-3 text-xs text-white/50">
+                Supported: Safari 13+, Chrome 56+, Samsung Internet 6.2+
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!scannerRequested && !showDirectVideo && !webglUnsupported && (
           <div className="absolute inset-0 z-40 flex items-center justify-center px-6 py-10">
             <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp</p>
