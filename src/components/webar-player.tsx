@@ -63,7 +63,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
-    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.00001; filterBeta: 0.0005; warmupTolerance: 1; missTolerance: 50`,
+    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.1; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
