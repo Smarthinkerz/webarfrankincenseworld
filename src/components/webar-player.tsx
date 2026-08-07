@@ -13,21 +13,6 @@ const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
 
 type WebArEntryMode = 'scanner' | 'video';
 
-/**
- * Detect whether the current device supports WebGL (1 or 2).
- * Returns 'webgl2', 'webgl1', or 'none'.
- */
-function detectWebGLSupport(): 'webgl2' | 'webgl1' | 'none' {
-  try {
-    const canvas = document.createElement('canvas');
-    if (canvas.getContext('webgl2')) return 'webgl2';
-    if (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) return 'webgl1';
-    return 'none';
-  } catch {
-    return 'none';
-  }
-}
-
 function hasValue(value: string) {
   return value.trim().length > 0;
 }
@@ -69,10 +54,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [targetDetected, setTargetDetected] = useState(false);
   const [videoSoundEnabled, setVideoSoundEnabled] = useState(false);
-  const [webglUnsupported] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return detectWebGLSupport() === 'none';
-  });
   const videoSoundEnabledRef = useRef(false);
   const [status, setStatus] = useState(
     opensInVideoMode
@@ -88,7 +69,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const showDirectVideo = opensInVideoMode && !runtimeReady;
 
   useEffect(() => {
-    if (!scannerRequested || !canRunCameraScanner || webglUnsupported) return;
+    if (!scannerRequested || !canRunCameraScanner) return;
     let cancelled = false;
 
     loadScript(AFRAME_SCRIPT_ID, AFRAME_SCRIPT_SRC)
@@ -107,7 +88,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     return () => {
       cancelled = true;
     };
-  }, [canRunCameraScanner, scannerRequested, webglUnsupported]);
+  }, [canRunCameraScanner, scannerRequested]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
@@ -302,22 +283,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
           </div>
         </div>
 
-        {webglUnsupported && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center px-6 py-10">
-            <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-red-400">Unsupported Browser</p>
-              <h1 className="mt-4 text-2xl font-black leading-tight tracking-[-0.04em] text-white">Update Required</h1>
-              <p className="mt-4 text-sm leading-6 text-white/70">
-                Your browser does not support WebGL, which is required for the AR experience. Please update your browser to the latest version, or try opening this page on a different device.
-              </p>
-              <p className="mt-3 text-xs text-white/50">
-                Supported: Safari 13+, Chrome 56+, Samsung Internet 6.2+
-              </p>
-            </div>
-          </div>
-        )}
-
-        {!scannerRequested && !showDirectVideo && !webglUnsupported && (
+        {!scannerRequested && !showDirectVideo && (
           <div className="absolute inset-0 z-40 flex items-center justify-center px-6 py-10">
             <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp</p>
