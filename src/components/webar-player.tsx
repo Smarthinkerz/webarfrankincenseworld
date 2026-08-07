@@ -94,37 +94,42 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!runtimeReady || !scannerRequested) return;
 
     const targetEntity = document.getElementById('purewells-ar-target');
+    const targetEntityPin = document.getElementById('purewells-ar-target-pin');
     const video = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
-    if (!targetEntity || !video) return;
+    if (!video || (!targetEntity && !targetEntityPin)) return;
 
     const handleTargetFound = () => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
       setTargetDetected(true);
-      setStatus(shouldStartMuted ? 'Stamp detected. Video is playing. Tap Enable sound for audio.' : 'Stamp detected. Video is playing with sound.');
+      setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
       video.currentTime = 0;
       video.volume = 1;
       video.muted = shouldStartMuted;
       const playback = video.play();
       if (playback) {
         playback.catch(() => {
-          setStatus('Stamp detected. Tap Enable sound once to allow playback on this phone.');
+          setStatus('Target detected. Tap Enable sound once to allow playback on this phone.');
         });
       }
     };
 
     const handleTargetLost = () => {
       setTargetDetected(false);
-      setStatus('Point the camera back at the stamp to resume the video.');
+      setStatus('Point the camera back at the stamp or pin to resume the video.');
       video.pause();
     };
 
-    targetEntity.addEventListener('targetFound', handleTargetFound);
-    targetEntity.addEventListener('targetLost', handleTargetLost);
+    targetEntity?.addEventListener('targetFound', handleTargetFound);
+    targetEntity?.addEventListener('targetLost', handleTargetLost);
+    targetEntityPin?.addEventListener('targetFound', handleTargetFound);
+    targetEntityPin?.addEventListener('targetLost', handleTargetLost);
 
     return () => {
-      targetEntity.removeEventListener('targetFound', handleTargetFound);
-      targetEntity.removeEventListener('targetLost', handleTargetLost);
+      targetEntity?.removeEventListener('targetFound', handleTargetFound);
+      targetEntity?.removeEventListener('targetLost', handleTargetLost);
+      targetEntityPin?.removeEventListener('targetFound', handleTargetFound);
+      targetEntityPin?.removeEventListener('targetLost', handleTargetLost);
     };
   }, [content.app.videoPlayback, runtimeReady, scannerRequested]);
 
@@ -249,6 +254,9 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             </a-assets>
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
+              <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
+            </a-entity>
+            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
