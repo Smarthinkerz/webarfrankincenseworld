@@ -72,13 +72,29 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!scannerRequested || !canRunCameraScanner) return;
     let cancelled = false;
 
-    // Explicitly request camera permission first — this ensures the browser
-    // permission prompt fires reliably on iOS Chrome/Safari before MindAR
-    // tries to access the camera internally.
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      .then((stream) => {
-        // Stop the preview stream immediately — MindAR will open its own
-        stream.getTracks().forEach((t) => t.stop());
+    // Request camera permission first, then load AR scripts.
+    // If the pre-check fails for any reason other than explicit denial,
+    // proceed anyway and let MindAR handle the camera internally.
+    const requestCamera = () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        // Browser doesn't support getUserMedia — skip pre-check, let MindAR try
+        return Promise.resolve();
+      }
+      return navigator.mediaDevices.getUserMedia({ video: true })
+        .then((stream) => {
+          stream.getTracks().forEach((t) => t.stop());
+        })
+        .catch((err) => {
+          if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+            throw err; // Only block on explicit denial
+          }
+          // For NotFoundError, OverconstrainedError, etc. — skip and let MindAR try
+          return;
+        });
+    };
+
+    requestCamera()
+      .then(() => {
         if (cancelled) return;
         return loadScript(AFRAME_SCRIPT_ID, AFRAME_SCRIPT_SRC);
       })
@@ -95,8 +111,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         if (cancelled) return;
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
           setStatus('Camera access was denied. Please allow camera in your browser settings and refresh.');
-        } else if (err && err.name === 'NotFoundError') {
-          setStatus('No camera found on this device.');
         } else {
           setRuntimeReady(false);
           setStatus('The scanner could not load. Refresh on your phone and try again.');
