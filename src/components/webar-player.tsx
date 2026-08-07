@@ -72,17 +72,35 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!scannerRequested || !canRunCameraScanner) return;
     let cancelled = false;
 
-    loadScript(AFRAME_SCRIPT_ID, AFRAME_SCRIPT_SRC)
-      .then(() => loadScript(MINDAR_SCRIPT_ID, MINDAR_SCRIPT_SRC))
+    // Explicitly request camera permission first — this ensures the browser
+    // permission prompt fires reliably on iOS Chrome/Safari before MindAR
+    // tries to access the camera internally.
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then((stream) => {
+        // Stop the preview stream immediately — MindAR will open its own
+        stream.getTracks().forEach((t) => t.stop());
+        if (cancelled) return;
+        return loadScript(AFRAME_SCRIPT_ID, AFRAME_SCRIPT_SRC);
+      })
+      .then(() => {
+        if (cancelled) return;
+        return loadScript(MINDAR_SCRIPT_ID, MINDAR_SCRIPT_SRC);
+      })
       .then(() => {
         if (cancelled) return;
         setRuntimeReady(true);
         setStatus('Camera is ready. Keep the stamp flat and inside the frame.');
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        setRuntimeReady(false);
-        setStatus('The scanner could not load. Refresh on your phone and try again.');
+        if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+          setStatus('Camera access was denied. Please allow camera in your browser settings and refresh.');
+        } else if (err && err.name === 'NotFoundError') {
+          setStatus('No camera found on this device.');
+        } else {
+          setRuntimeReady(false);
+          setStatus('The scanner could not load. Refresh on your phone and try again.');
+        }
       });
 
     return () => {
