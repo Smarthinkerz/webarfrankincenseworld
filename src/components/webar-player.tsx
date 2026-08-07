@@ -63,7 +63,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
-    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 5`,
+    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 0.001; warmupTolerance: 2; missTolerance: 50; maxTrack: 2`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -135,7 +135,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
       setTargetDetected(true);
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
-      video.currentTime = 0;
+      // Only reset to start if video hasn't begun playing yet
+      if (video.paused && video.currentTime === 0) {
+        video.currentTime = 0;
+      }
       video.volume = 1;
       video.muted = shouldStartMuted;
       const playback = video.play();
@@ -148,8 +151,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
     const handleTargetLost = () => {
       setTargetDetected(false);
-      setStatus('Point the camera back at the stamp or pin to resume the video.');
-      video.pause();
+      setStatus('Video continues playing. Point camera at stamp or pin to re-anchor.');
+      // Don't pause — let the video keep playing even when target is lost
     };
 
     targetEntity?.addEventListener('targetFound', handleTargetFound);
