@@ -13,11 +13,20 @@ const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
 
 type WebArEntryMode = 'scanner' | 'video';
 
-type AFrameTransformObject = {
-  position: { copy: (value: AFrameTransformObject['position']) => void; lerp: (value: AFrameTransformObject['position'], alpha: number) => void };
-  quaternion: { copy: (value: AFrameTransformObject['quaternion']) => void; slerp: (value: AFrameTransformObject['quaternion'], alpha: number) => void };
-  scale: { copy: (value: AFrameTransformObject['scale']) => void; lerp: (value: AFrameTransformObject['scale'], alpha: number) => void };
-};
+// Instagram / Facebook / LINE / TikTok in-app webviews either block getUserMedia outright or
+// silently return no camera. There is no way to request permission from inside them, so the only
+// real fix is to reopen the link in Chrome or Safari. Detect them so we can say that plainly.
+function detectInAppBrowser(): string | null {
+  if (typeof navigator === 'undefined') return null;
+  const ua = navigator.userAgent || '';
+  if (/FBAN|FBAV|FB_IAB|FBIOS/i.test(ua)) return 'Facebook';
+  if (/Instagram/i.test(ua)) return 'Instagram';
+  if (/Line\//i.test(ua)) return 'LINE';
+  if (/WhatsApp/i.test(ua)) return 'WhatsApp';
+  if (/TikTok|BytedanceWebview/i.test(ua)) return 'TikTok';
+  if (/Twitter/i.test(ua)) return 'X';
+  return null;
+}
 
 function hasValue(value: string) {
   return value.trim().length > 0;
@@ -66,10 +75,17 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       ? 'Video is ready. Tap once if your browser blocks playback.'
       : 'Tap Start camera, allow camera access, then scan the stamp.'
   );
+  const inAppBrowser = useMemo(() => detectInAppBrowser(), []);
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
-    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.001; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
+    () =>
+      // One-euro filter: cutoff = filterMinCF + filterBeta * |velocity|.
+      // MindAR defaults (0.001 / 1000) let hand tremor through almost unfiltered, which is the
+      // shaky overlay. Lowering both damps the pose; warmupTolerance back above the default 5
+      // stops the overlay popping in on a single noisy frame, and a high missTolerance keeps it
+      // from flickering out during brief occlusion.
+      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 10; warmupTolerance: 5; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -116,7 +132,11 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       .catch((err) => {
         if (cancelled) return;
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-          setStatus('Camera access was denied. Please allow camera in your browser settings and refresh.');
+          setStatus(
+            inAppBrowser
+              ? `The ${inAppBrowser} in-app browser blocks the camera. Tap the menu (⋮ or …) and choose "Open in browser", then try again in Chrome or Safari.`
+              : 'Camera access was denied. Please allow camera in your browser settings and refresh.'
+          );
         } else {
           setRuntimeReady(false);
           setStatus('The scanner could not load. Refresh on your phone and try again.');
@@ -126,45 +146,20 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     return () => {
       cancelled = true;
     };
-  }, [canRunCameraScanner, scannerRequested]);
+  }, [canRunCameraScanner, scannerRequested, inAppBrowser]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
 
     const targetEntity = document.getElementById('purewells-ar-target');
     const targetEntityPin = document.getElementById('purewells-ar-target-pin');
-    const pinOverlay = document.getElementById('purewells-pin-overlay');
     const video = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
     if (!video || (!targetEntity && !targetEntityPin)) return;
 
-    let animationFrame = 0;
-    const syncPinOverlay = () => {
-      const targetObject = (targetEntityPin as (HTMLElement & { object3D?: AFrameTransformObject }) | null)?.object3D;
-      const overlayObject = (pinOverlay as (HTMLElement & { object3D?: AFrameTransformObject }) | null)?.object3D;
-      if (targetObject && overlayObject) {
-        if (!pinOverlay?.dataset.smoothed) {
-          overlayObject.position.copy(targetObject.position);
-          overlayObject.quaternion.copy(targetObject.quaternion);
-          overlayObject.scale.copy(targetObject.scale);
-          if (pinOverlay) pinOverlay.dataset.smoothed = 'true';
-        } else {
-          overlayObject.position.lerp(targetObject.position, 0.14);
-          overlayObject.quaternion.slerp(targetObject.quaternion, 0.14);
-          overlayObject.scale.lerp(targetObject.scale, 0.14);
-        }
-      }
-      animationFrame = window.requestAnimationFrame(syncPinOverlay);
-    };
-    syncPinOverlay();
-
-    const handleTargetFound = (event: Event) => {
+    const handleTargetFound = () => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
       setTargetDetected(true);
-      if (pinOverlay && event.currentTarget === targetEntityPin) {
-        // The pin overlay is outside the target entity so its transform can be smoothed independently.
-        pinOverlay.setAttribute('visible', 'true');
-      }
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
       // Only reset to start if video hasn't begun playing yet
       if (video.ended || (video.paused && video.currentTime === 0)) {
@@ -192,7 +187,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     targetEntityPin?.addEventListener('targetLost', handleTargetLost);
 
     return () => {
-      window.cancelAnimationFrame(animationFrame);
       targetEntity?.removeEventListener('targetFound', handleTargetFound);
       targetEntity?.removeEventListener('targetLost', handleTargetLost);
       targetEntityPin?.removeEventListener('targetFound', handleTargetFound);
@@ -316,15 +310,14 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             embedded
             className="absolute inset-0 z-10 h-full w-full bg-transparent"
           >
-            <a-assets>
+            <a-assets timeout="10000">
               <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline loop webkit-playsinline="" crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
             </a-assets>
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
-            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1" />
-            <a-entity id="purewells-pin-overlay" visible="false">
+            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
@@ -365,6 +358,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
               <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp</p>
               <h1 className="mt-4 text-3xl font-black leading-tight tracking-[-0.04em] text-white">Open camera and scan</h1>
               <p className="mt-4 text-sm leading-6 text-white/70">Tap Start camera, allow camera access, then point your phone at the stamp. The video will play on the stamp.</p>
+
+              {inAppBrowser && (
+                <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-left text-xs leading-5 text-amber-200">
+                  You opened this inside {inAppBrowser}. Its built-in browser blocks the camera. Tap the menu (&#8942; or &#8230;) and choose
+                  &quot;Open in browser&quot; to continue in Chrome or Safari.
+                </div>
+              )}
               <button type="button" onClick={handleStartScanner} className="mt-6 w-full rounded-full bg-cyan px-6 py-4 text-sm font-black uppercase tracking-[0.18em] text-ink shadow-[0_0_28px_rgba(93,231,255,0.45)] transition hover:bg-white">
                 Start camera
               </button>
