@@ -13,6 +13,12 @@ const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
 
 type WebArEntryMode = 'scanner' | 'video';
 
+type AFrameTransformObject = {
+  position: { copy: (value: AFrameTransformObject['position']) => void; lerp: (value: AFrameTransformObject['position'], alpha: number) => void };
+  quaternion: { copy: (value: AFrameTransformObject['quaternion']) => void; slerp: (value: AFrameTransformObject['quaternion'], alpha: number) => void };
+  scale: { copy: (value: AFrameTransformObject['scale']) => void; lerp: (value: AFrameTransformObject['scale'], alpha: number) => void };
+};
+
 function hasValue(value: string) {
   return value.trim().length > 0;
 }
@@ -63,7 +69,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
-    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
+    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.001; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -127,13 +133,38 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
     const targetEntity = document.getElementById('purewells-ar-target');
     const targetEntityPin = document.getElementById('purewells-ar-target-pin');
+    const pinOverlay = document.getElementById('purewells-pin-overlay');
     const video = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
     if (!video || (!targetEntity && !targetEntityPin)) return;
 
-    const handleTargetFound = () => {
+    let animationFrame = 0;
+    const syncPinOverlay = () => {
+      const targetObject = (targetEntityPin as (HTMLElement & { object3D?: AFrameTransformObject }) | null)?.object3D;
+      const overlayObject = (pinOverlay as (HTMLElement & { object3D?: AFrameTransformObject }) | null)?.object3D;
+      if (targetObject && overlayObject) {
+        if (!pinOverlay?.dataset.smoothed) {
+          overlayObject.position.copy(targetObject.position);
+          overlayObject.quaternion.copy(targetObject.quaternion);
+          overlayObject.scale.copy(targetObject.scale);
+          if (pinOverlay) pinOverlay.dataset.smoothed = 'true';
+        } else {
+          overlayObject.position.lerp(targetObject.position, 0.14);
+          overlayObject.quaternion.slerp(targetObject.quaternion, 0.14);
+          overlayObject.scale.lerp(targetObject.scale, 0.14);
+        }
+      }
+      animationFrame = window.requestAnimationFrame(syncPinOverlay);
+    };
+    syncPinOverlay();
+
+    const handleTargetFound = (event: Event) => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
       setTargetDetected(true);
+      if (pinOverlay && event.currentTarget === targetEntityPin) {
+        // The pin overlay is outside the target entity so its transform can be smoothed independently.
+        pinOverlay.setAttribute('visible', 'true');
+      }
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
       // Only reset to start if video hasn't begun playing yet
       if (video.ended || (video.paused && video.currentTime === 0)) {
@@ -161,6 +192,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     targetEntityPin?.addEventListener('targetLost', handleTargetLost);
 
     return () => {
+      window.cancelAnimationFrame(animationFrame);
       targetEntity?.removeEventListener('targetFound', handleTargetFound);
       targetEntity?.removeEventListener('targetLost', handleTargetLost);
       targetEntityPin?.removeEventListener('targetFound', handleTargetFound);
@@ -291,7 +323,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
-            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1">
+            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1" />
+            <a-entity id="purewells-pin-overlay" visible="false">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
