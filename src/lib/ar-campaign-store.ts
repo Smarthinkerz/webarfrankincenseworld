@@ -179,7 +179,11 @@ function genericFallbackContent(slug: string, locale: Locale): CmsContent {
 
 function mapRowToCmsContent(row: ArCampaignRow, locale: Locale): CmsContent {
   const fallback = row.slug === PUREWELLS_SLUG ? purewellsFallbackContent(locale) : genericFallbackContent(row.slug || 'campaign', locale);
-  const trackingDataUrl = normalizeString(row.tracking_dataset_url) || normalizeString(row.tracking_data_url) || fallback.app.trackingDataUrl;
+  // Keep the Purewells campaign on the deployed two-target dataset.
+  // This prevents a stale CMS URL from overriding the current stamp-and-pin file.
+  const trackingDataUrl = row.slug === PUREWELLS_SLUG
+    ? PUREWELLS_TRACKING_DATA_URL
+    : normalizeString(row.tracking_dataset_url) || normalizeString(row.tracking_data_url) || fallback.app.trackingDataUrl;
 
   return {
     ...fallback,

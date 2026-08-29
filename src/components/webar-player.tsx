@@ -63,7 +63,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
-    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.1; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
+    () => `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 1000; warmupTolerance: 1; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -136,7 +136,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       setTargetDetected(true);
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
       // Only reset to start if video hasn't begun playing yet
-      if (video.paused && video.currentTime === 0) {
+      if (video.ended || (video.paused && video.currentTime === 0)) {
         video.currentTime = 0;
       }
       video.volume = 1;
@@ -285,7 +285,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             className="absolute inset-0 z-10 h-full w-full bg-transparent"
           >
             <a-assets>
-              <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline webkit-playsinline="" crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
+              <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline loop webkit-playsinline="" crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
             </a-assets>
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
