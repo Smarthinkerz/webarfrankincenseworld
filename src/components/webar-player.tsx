@@ -165,6 +165,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       : 'Tap Start camera, allow camera access, then scan the stamp.'
   );
   const inAppBrowser = useMemo(() => detectInAppBrowser(), []);
+  const debugMode = useMemo(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug'),
+    []
+  );
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const playErrorRef = useRef<string>('none');
+  const eventLogRef = useRef<string[]>([]);
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
@@ -250,6 +257,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     const handleTargetFound = () => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
+      eventLogRef.current = [...eventLogRef.current.slice(-4), `found@${new Date().toISOString().slice(14, 19)}`];
       setTargetDetected(true);
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
       // Only reset to start if video hasn't begun playing yet
@@ -260,7 +268,9 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       video.muted = shouldStartMuted;
       const playback = video.play();
       if (playback) {
-        playback.catch(() => {
+        playback.catch((err: unknown) => {
+          const e = err as { name?: string; message?: string } | null;
+          playErrorRef.current = `${e?.name ?? 'Error'}: ${e?.message ?? String(err)}`;
           setStatus('Target detected. Tap Enable sound once to allow playback on this phone.');
         });
       }
@@ -348,6 +358,33 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     };
   }, [runtimeReady, scannerRequested]);
 
+  useEffect(() => {
+    if (!debugMode) return;
+    const tick = () => {
+      const v = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
+      const scene = document.getElementById('purewells-ar-scene') as (HTMLElement & { hasLoaded?: boolean }) | null;
+      const camVideos = document.querySelectorAll('#purewells-scanner-stage video').length;
+      const aframe = (window as unknown as { AFRAME?: AframeGlobal }).AFRAME;
+      const lines: string[] = [];
+      lines.push(`UA ${navigator.userAgent.slice(0, 68)}`);
+      lines.push(`secure=${String(window.isSecureContext)} aframe=${aframe ? 'yes' : 'NO'} damped=${aframe?.components?.['damped-anchor'] ? 'yes' : 'NO'}`);
+      lines.push(`sceneLoaded=${String(scene?.hasLoaded)} videoEls=${camVideos}`);
+      if (!v) {
+        lines.push('AR VIDEO ELEMENT: MISSING');
+      } else {
+        lines.push(`ready=${v.readyState}/4 net=${v.networkState} paused=${String(v.paused)} muted=${String(v.muted)}`);
+        lines.push(`t=${v.currentTime.toFixed(1)}s dur=${isNaN(v.duration) ? '?' : v.duration.toFixed(1)}s buf=${v.buffered.length ? v.buffered.end(v.buffered.length - 1).toFixed(1) : 0}s`);
+        lines.push(`size=${v.videoWidth}x${v.videoHeight} err=${v.error ? v.error.code : 'none'}`);
+        lines.push(`playErr=${playErrorRef.current}`);
+      }
+      lines.push(`events: ${eventLogRef.current.join(' ') || '(none yet)'}`);
+      setDiagnostics(lines);
+    };
+    tick();
+    const id = window.setInterval(tick, 700);
+    return () => window.clearInterval(id);
+  }, [debugMode, runtimeReady, scannerRequested]);
+
   const handleStartScanner = () => {
     if (!canRunCameraScanner) {
       setStatus('This AR scan is not ready yet because the video or tracking data is missing.');
@@ -410,7 +447,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             <a-entity damped-anchor="target: purewells-ar-target">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
-            <a-entity damped-anchor="target: purewells-ar-target-pin; position: 0.13; rotation: 0.06; scale: 0.09">
+            <a-entity damped-anchor="target: purewells-ar-target-pin; position: 0.07; rotation: 0.03; scale: 0.05">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
@@ -462,6 +499,14 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
                 Start camera
               </button>
             </div>
+          </div>
+        )}
+
+        {debugMode && (
+          <div className="pointer-events-none absolute left-2 right-2 top-24 z-50 rounded-lg bg-black/85 p-3 font-mono text-[10px] leading-[1.35] text-lime-300">
+            {diagnostics.map((line, i) => (
+              <div key={i} className="break-all">{line}</div>
+            ))}
           </div>
         )}
 
