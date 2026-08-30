@@ -82,10 +82,11 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     () =>
       // One-euro filter: cutoff = filterMinCF + filterBeta * |velocity|.
       // MindAR defaults (0.001 / 1000) let hand tremor through almost unfiltered, which is the
-      // shaky overlay. Lowering both damps the pose; warmupTolerance back above the default 5
+      // shaky overlay. With beta near zero the cutoff stays at filterMinCF regardless of motion,
+      // so the pose is heavily damped and the overlay sits still; warmupTolerance above the default 5
       // stops the overlay popping in on a single noisy frame, and a high missTolerance keeps it
       // from flickering out during brief occlusion.
-      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 10; warmupTolerance: 5; missTolerance: 50`,
+      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.00001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
