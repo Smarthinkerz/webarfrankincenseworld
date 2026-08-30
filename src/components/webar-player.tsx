@@ -29,8 +29,16 @@ function detectInAppBrowser(): string | null {
 }
 
 // Minimal structural types for the bits of three.js/A-Frame we touch at runtime.
-type Vec3Like = { copy: (v: Vec3Like) => void; lerp: (v: Vec3Like, alpha: number) => void };
-type QuatLike = { copy: (q: QuatLike) => void; slerp: (q: QuatLike, alpha: number) => void };
+type Vec3Like = {
+  copy: (v: Vec3Like) => void;
+  lerp: (v: Vec3Like, alpha: number) => void;
+  distanceTo: (v: Vec3Like) => number;
+};
+type QuatLike = {
+  copy: (q: QuatLike) => void;
+  slerp: (q: QuatLike, alpha: number) => void;
+  angleTo: (q: QuatLike) => number;
+};
 type Mat4Like = {
   decompose: (p: Vec3Like, q: QuatLike, s: Vec3Like) => void;
   compose: (p: Vec3Like, q: QuatLike, s: Vec3Like) => void;
@@ -48,7 +56,12 @@ type AframeGlobal = {
 };
 
 type DampedAnchor = {
-  data: { target: string; position: number; rotation: number; scale: number };
+  data: {
+    target: string;
+    minPosition: number; maxPosition: number;
+    minRotation: number; maxRotation: number;
+    positionErrorRef: number; rotationErrorRef: number;
+  };
   el: HTMLElement & { object3D: Object3DLike };
   pos: Vec3Like; quat: QuatLike; scl: Vec3Like;
   tPos: Vec3Like; tQuat: QuatLike; tScl: Vec3Like;
@@ -56,12 +69,23 @@ type DampedAnchor = {
 };
 
 // MindAR writes the tracked pose straight into el.object3D.matrix (matrixAutoUpdate is off), so
-// the anchor snaps to whatever the tracker reports each frame. Its own one-euro filter is already
-// near its useful limit; pushing it further just makes the overlay lag until the tracker drops and
-// snaps back. Instead the anchors stay raw and the video renders on a separate entity that eases
-// toward the anchor's decomposed transform. Rotation is damped hardest because angular jitter is
-// what the eye actually sees on a plane wider than the target itself. Detection never sees this,
-// so extra damping here cannot cause a lost target.
+// the anchor snaps to whatever the tracker reports each frame. Its own one-euro filter is near
+// its useful limit; pushing it further makes the pose lag until the tracker drops and snaps back.
+// So the anchors stay raw and the video renders on a sibling entity that eases toward the
+// anchor's decomposed transform.
+//
+// The ease is adaptive, because most people scan while HOLDING the pin badge: the target really
+// moves, and a heavy fixed damper would leave the video floating behind it. The signal we adapt
+// on is the *error* between where the overlay currently sits and where the tracker says the
+// target is - not the pose's frame-to-frame speed. Speed is useless here: random tracker jitter
+// has high instantaneous speed while going nowhere, so it would switch damping off exactly when
+// it is needed. Error behaves correctly instead, because jitter cancels out around a mean and
+// stays inside a small band, while genuine movement accumulates and pulls the error open.
+//
+// The blend is squared so that small errors - anything within the noise band - stay near the
+// heavily damped floor, and the response only opens up once the target has genuinely moved.
+// Rotation keeps the heavier hand: angular jitter is what the eye catches on a plane wider than
+// the target itself. Detection never sees this stage, so damping cannot cause a lost target.
 let dampedAnchorRegistered = false;
 
 function registerDampedAnchor() {
@@ -70,12 +94,21 @@ function registerDampedAnchor() {
   dampedAnchorRegistered = true;
   const THREE = aframe.THREE;
 
+  const blend = (min: number, max: number, error: number, ref: number) => {
+    const t = Math.min(1, Math.max(0, error / ref));
+    return min + (max - min) * t * t;
+  };
+
   aframe.registerComponent('damped-anchor', {
     schema: {
       target: { type: 'string' },
-      position: { type: 'number', default: 0.18 },
-      rotation: { type: 'number', default: 0.09 },
-      scale: { type: 'number', default: 0.12 }
+      minPosition: { type: 'number', default: 0.10 },
+      maxPosition: { type: 'number', default: 0.60 },
+      minRotation: { type: 'number', default: 0.05 },
+      maxRotation: { type: 'number', default: 0.50 },
+      // Errors are in target widths (the target image is 1 unit) and radians.
+      positionErrorRef: { type: 'number', default: 0.08 },
+      rotationErrorRef: { type: 'number', default: 0.10 }
     },
     init(this: DampedAnchor) {
       this.pos = new THREE.Vector3();
@@ -107,9 +140,11 @@ function registerDampedAnchor() {
         this.scl.copy(this.tScl);
         this.settled = true;
       } else {
-        this.pos.lerp(this.tPos, this.data.position);
-        this.quat.slerp(this.tQuat, this.data.rotation);
-        this.scl.lerp(this.tScl, this.data.scale);
+        const aPos = blend(this.data.minPosition, this.data.maxPosition, this.pos.distanceTo(this.tPos), this.data.positionErrorRef);
+        const aRot = blend(this.data.minRotation, this.data.maxRotation, this.quat.angleTo(this.tQuat), this.data.rotationErrorRef);
+        this.pos.lerp(this.tPos, aPos);
+        this.quat.slerp(this.tQuat, aRot);
+        this.scl.lerp(this.tScl, aPos);
       }
 
       dst.matrix.compose(this.pos, this.quat, this.scl);
@@ -444,10 +479,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0" />
             <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1" />
-            <a-entity damped-anchor="target: purewells-ar-target">
+            <a-entity damped-anchor="target: purewells-ar-target; minPosition: 0.12; minRotation: 0.06">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
-            <a-entity damped-anchor="target: purewells-ar-target-pin; position: 0.07; rotation: 0.03; scale: 0.05">
+            <a-entity damped-anchor="target: purewells-ar-target-pin; minPosition: 0.06; minRotation: 0.025; maxPosition: 0.65; maxRotation: 0.55">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
