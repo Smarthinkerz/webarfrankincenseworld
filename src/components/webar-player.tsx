@@ -28,6 +28,95 @@ function detectInAppBrowser(): string | null {
   return null;
 }
 
+// Minimal structural types for the bits of three.js/A-Frame we touch at runtime.
+type Vec3Like = { copy: (v: Vec3Like) => void; lerp: (v: Vec3Like, alpha: number) => void };
+type QuatLike = { copy: (q: QuatLike) => void; slerp: (q: QuatLike, alpha: number) => void };
+type Mat4Like = {
+  decompose: (p: Vec3Like, q: QuatLike, s: Vec3Like) => void;
+  compose: (p: Vec3Like, q: QuatLike, s: Vec3Like) => void;
+};
+type Object3DLike = { visible: boolean; matrix: Mat4Like; matrixAutoUpdate: boolean };
+type AnchorElement = HTMLElement & { object3D?: Object3DLike };
+
+type AframeGlobal = {
+  components: Record<string, unknown>;
+  registerComponent: (name: string, definition: Record<string, unknown>) => void;
+  THREE: {
+    Vector3: new (x?: number, y?: number, z?: number) => Vec3Like;
+    Quaternion: new () => QuatLike;
+  };
+};
+
+type DampedAnchor = {
+  data: { target: string; position: number; rotation: number; scale: number };
+  el: HTMLElement & { object3D: Object3DLike };
+  pos: Vec3Like; quat: QuatLike; scl: Vec3Like;
+  tPos: Vec3Like; tQuat: QuatLike; tScl: Vec3Like;
+  settled: boolean;
+};
+
+// MindAR writes the tracked pose straight into el.object3D.matrix (matrixAutoUpdate is off), so
+// the anchor snaps to whatever the tracker reports each frame. Its own one-euro filter is already
+// near its useful limit; pushing it further just makes the overlay lag until the tracker drops and
+// snaps back. Instead the anchors stay raw and the video renders on a separate entity that eases
+// toward the anchor's decomposed transform. Rotation is damped hardest because angular jitter is
+// what the eye actually sees on a plane wider than the target itself. Detection never sees this,
+// so extra damping here cannot cause a lost target.
+let dampedAnchorRegistered = false;
+
+function registerDampedAnchor() {
+  const aframe = (window as unknown as { AFRAME?: AframeGlobal }).AFRAME;
+  if (!aframe || dampedAnchorRegistered || aframe.components['damped-anchor']) return;
+  dampedAnchorRegistered = true;
+  const THREE = aframe.THREE;
+
+  aframe.registerComponent('damped-anchor', {
+    schema: {
+      target: { type: 'string' },
+      position: { type: 'number', default: 0.18 },
+      rotation: { type: 'number', default: 0.09 },
+      scale: { type: 'number', default: 0.12 }
+    },
+    init(this: DampedAnchor) {
+      this.pos = new THREE.Vector3();
+      this.quat = new THREE.Quaternion();
+      this.scl = new THREE.Vector3(1, 1, 1);
+      this.tPos = new THREE.Vector3();
+      this.tQuat = new THREE.Quaternion();
+      this.tScl = new THREE.Vector3(1, 1, 1);
+      this.settled = false;
+      this.el.object3D.matrixAutoUpdate = false;
+    },
+    tick(this: DampedAnchor) {
+      const src = (document.getElementById(this.data.target) as AnchorElement | null)?.object3D;
+      const dst = this.el.object3D;
+      if (!src) return;
+
+      dst.visible = src.visible;
+      if (!src.visible) {
+        // Re-seed on the next acquisition so the overlay never eases in from a stale pose.
+        this.settled = false;
+        return;
+      }
+
+      src.matrix.decompose(this.tPos, this.tQuat, this.tScl);
+
+      if (!this.settled) {
+        this.pos.copy(this.tPos);
+        this.quat.copy(this.tQuat);
+        this.scl.copy(this.tScl);
+        this.settled = true;
+      } else {
+        this.pos.lerp(this.tPos, this.data.position);
+        this.quat.slerp(this.tQuat, this.data.rotation);
+        this.scl.lerp(this.tScl, this.data.scale);
+      }
+
+      dst.matrix.compose(this.pos, this.quat, this.scl);
+    }
+  });
+}
+
 function hasValue(value: string) {
   return value.trim().length > 0;
 }
@@ -86,7 +175,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       // so the pose is heavily damped and the overlay sits still; warmupTolerance above the default 5
       // stops the overlay popping in on a single noisy frame, and a high missTolerance keeps it
       // from flickering out during brief occlusion.
-      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.00001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 50`,
+      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 1; warmupTolerance: 5; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -123,6 +212,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       })
       .then(() => {
         if (cancelled) return;
+        registerDampedAnchor();
         return loadScript(MINDAR_SCRIPT_ID, MINDAR_SCRIPT_SRC);
       })
       .then(() => {
@@ -315,10 +405,12 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
               <video id="purewells-ar-video" src={content.app.videoUrl} poster={posterUrl} preload="auto" playsInline loop webkit-playsinline="" crossOrigin="anonymous" muted={content.app.videoPlayback === 'autoplay-on-detect'} />
             </a-assets>
             <a-camera position="0 0 0" look-controls="enabled: false" />
-            <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0">
+            <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0" />
+            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1" />
+            <a-entity damped-anchor="target: purewells-ar-target">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
-            <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1">
+            <a-entity damped-anchor="target: purewells-ar-target-pin; position: 0.13; rotation: 0.06; scale: 0.09">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
