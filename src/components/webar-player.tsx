@@ -18,6 +18,7 @@ const JSQR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
 // genuine scans. So the discriminator is the one signal the stamp does not carry: the QR's own
 // finder patterns. While a QR is decodable in frame the overlay is held back, and the suppression
 // decays shortly after the code leaves the shot so aiming at the stamp starts playing at once.
+const SCRIPT_TIMEOUT_MS = 15000;
 const QR_SUPPRESS_MS = 1200;
 const QR_SAMPLE_INTERVAL_MS = 300;
 const QR_SAMPLE_WIDTH = 360;
@@ -204,16 +205,27 @@ function hasValue(value: string) {
   return value.trim().length > 0;
 }
 
-function loadScript(id: string, src: string) {
+// A CDN that accepts the connection and then stalls never fires load or error, so without a
+// deadline the whole camera start-up waits on it forever. On event wifi that is the difference
+// between "the scanner is slow" and "the scanner never opens".
+function loadScript(id: string, src: string, timeoutMs = SCRIPT_TIMEOUT_MS) {
   return new Promise<void>((resolve, reject) => {
     const existing = document.getElementById(id) as HTMLScriptElement | null;
     if (existing?.dataset.loaded === 'true') {
       resolve();
       return;
     }
+
+    let timer = 0;
+    const settle = (fn: () => void) => {
+      if (timer) window.clearTimeout(timer);
+      fn();
+    };
+    timer = window.setTimeout(() => reject(new Error(`Timed out loading ${src}`)), timeoutMs);
+
     if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      existing.addEventListener('load', () => settle(resolve), { once: true });
+      existing.addEventListener('error', () => settle(() => reject(new Error(`Failed to load ${src}`))), { once: true });
       return;
     }
 
@@ -222,11 +234,11 @@ function loadScript(id: string, src: string) {
     script.src = src;
     script.async = true;
     script.crossOrigin = 'anonymous';
-    script.addEventListener('load', () => {
+    script.addEventListener('load', () => settle(() => {
       script.dataset.loaded = 'true';
       resolve();
-    });
-    script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+    }));
+    script.addEventListener('error', () => settle(() => reject(new Error(`Failed to load ${src}`))));
     document.head.appendChild(script);
   });
 }
@@ -323,12 +335,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         if (cancelled) return;
         registerDampedAnchor();
         return loadScript(MINDAR_SCRIPT_ID, MINDAR_SCRIPT_SRC);
-      })
-      .then(() => {
-        if (cancelled) return;
-        // Best effort: if the QR reader will not load, the scanner still works, it just loses the
-        // guard against the entry code triggering the video.
-        return loadScript(JSQR_SCRIPT_ID, JSQR_SCRIPT_SRC).catch(() => undefined);
       })
       .then(() => {
         if (cancelled) return;
@@ -448,8 +454,6 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   // seen, not tracked - and keeps the cost off the tracking loop.
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
-    const jsQR = (window as unknown as { jsQR?: (d: Uint8ClampedArray, w: number, h: number, o?: unknown) => unknown }).jsQR;
-    if (typeof jsQR !== 'function') return;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -464,6 +468,10 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     };
 
     const sample = () => {
+      // Resolved per tick: the reader is fetched in parallel with the camera and may land after
+      // the scanner is already running.
+      const jsQR = (window as unknown as { jsQR?: (d: Uint8ClampedArray, w: number, h: number, o?: unknown) => unknown }).jsQR;
+      if (typeof jsQR !== 'function') return;
       const video = cameraVideo();
       if (!video) return;
       const w = QR_SAMPLE_WIDTH;
@@ -603,6 +611,9 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       return;
     }
     setStatus('Loading camera. If prompted, allow camera access.');
+    // Fetched alongside the camera rather than before it. The QR guard is a refinement; the
+    // camera opening is the whole product, and it must never queue behind a third-party CDN.
+    loadScript(JSQR_SCRIPT_ID, JSQR_SCRIPT_SRC).catch(() => undefined);
     videoSoundEnabledRef.current = false;
     setVideoSoundEnabled(false);
     setVideoFallbackRequested(false);

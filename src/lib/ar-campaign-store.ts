@@ -76,22 +76,36 @@ function isRemoteAssetUrl(value: string) {
   }
 }
 
+// Remembering the verdict keeps a HEAD round trip per asset off every single page load. The
+// campaign assets change on a human timescale, so a short TTL costs nothing and the scan page
+// stops paying for storage latency on the critical path.
+const assetCheckCache = new Map<string, { ok: boolean; expires: number }>();
+const ASSET_CHECK_TTL_MS = 5 * 60 * 1000;
+const ASSET_CHECK_TIMEOUT_MS = 2000;
+
 async function remoteAssetExists(url: string) {
   if (!isRemoteAssetUrl(url)) return true;
 
+  const cached = assetCheckCache.get(url);
+  if (cached && cached.expires > Date.now()) return cached.ok;
+
+  const remember = (ok: boolean) => {
+    assetCheckCache.set(url, { ok, expires: Date.now() + ASSET_CHECK_TTL_MS });
+    return ok;
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ASSET_CHECK_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3500);
-    try {
-      const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: controller.signal });
-      clearTimeout(timer);
-      return response.ok;
-    } catch {
-      clearTimeout(timer);
-      return false;
-    }
+    const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: controller.signal });
+    // Only a definite "this is not there" is allowed to blank an asset. A timeout or a network
+    // blip used to do it too, and blanking the video URL disables the whole camera scanner - the
+    // experience died on a slow storage response rather than on a real missing file.
+    return remember(response.ok);
   } catch {
-    return false;
+    return true;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -209,8 +223,24 @@ function mapRowToCmsContent(row: ArCampaignRow, locale: Locale): CmsContent {
   };
 }
 
+// The scan page is force-dynamic, so without this every visitor waited on a fresh Supabase round
+// trip before the page could render. The campaign is edited from the CMS occasionally, not per
+// request, so a short TTL keeps publishing responsive while taking the query off the hot path.
+const campaignCache = new Map<string, { content: CmsContent; expires: number }>();
+const CAMPAIGN_TTL_MS = 60 * 1000;
+
 export async function getPublishedArCampaignContent(slug: string, locale: Locale = 'en'): Promise<CmsContent> {
   const safeSlug = slug.trim().toLowerCase();
+  const cacheKey = `${safeSlug}|${locale}`;
+  const cached = campaignCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.content;
+
+  const content = await loadArCampaignContent(safeSlug, locale);
+  campaignCache.set(cacheKey, { content, expires: Date.now() + CAMPAIGN_TTL_MS });
+  return content;
+}
+
+async function loadArCampaignContent(safeSlug: string, locale: Locale): Promise<CmsContent> {
   const fallback = safeSlug === PUREWELLS_SLUG ? purewellsFallbackContent(locale) : genericFallbackContent(safeSlug || 'campaign', locale);
   const supabase = createCampaignClient();
 
