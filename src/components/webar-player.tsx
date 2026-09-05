@@ -10,6 +10,8 @@ const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.4.2/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
 const AR_VIDEO_OVERLAY_WIDTH = 2.05;
 const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
+// Grace period between losing every anchor and pausing the video.
+const TARGET_LOST_PAUSE_MS = 700;
 
 type WebArEntryMode = 'scanner' | 'video';
 
@@ -213,7 +215,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const posterUrl = hasValue(content.app.videoPosterUrl) ? content.app.videoPosterUrl : '/sample-video-poster.svg';
   const hasVideo = hasValue(content.app.videoUrl);
   const hasTrackingData = content.app.trackingMode === 'manual-preview' || hasValue(content.app.trackingDataUrl);
+  // The /player route exists to play the video and nothing else. Everything reached by scanning
+  // the QR code goes to /scan, which lands on the camera: the product flow is QR -> Start camera
+  // -> point at the stamp or the pin badge -> the video plays on the object. Opening the video
+  // outright there skipped the entire AR experience, so /scan now only shows the plain player
+  // when someone deliberately asks for it with "Watch the video instead".
   const opensInVideoMode = entryMode === 'video' && hasVideo;
+  const [videoFallbackRequested, setVideoFallbackRequested] = useState(false);
   const [scannerRequested, setScannerRequested] = useState(false);
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [targetDetected, setTargetDetected] = useState(false);
@@ -257,7 +265,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; maxTrack: 2; filterMinCF: 0.0001; filterBeta: 1; warmupTolerance: 1; missTolerance: 50`,
     [targetMindSrc]
   );
-  const showDirectVideo = opensInVideoMode && !runtimeReady;
+  const showDirectVideo = (opensInVideoMode || videoFallbackRequested) && hasVideo && !runtimeReady;
 
   useEffect(() => {
     if (!scannerRequested || !canRunCameraScanner) return;
@@ -331,9 +339,24 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     // object must not report the target as lost.
     const held = new Set<string>();
 
+    // The video is anchored to a physical object, so it stops when that object leaves the frame.
+    // The pause is deferred by a short grace period rather than fired on the event, because
+    // targetLost also fires on a momentary drop mid-scan - a hand wobble, a glare across the
+    // badge - and pausing on those would chop the soundtrack up. MindAR's own missTolerance
+    // already absorbs about 1.7s of that before it emits the event at all, so anything still
+    // missing after the grace window has genuinely been taken out of shot.
+    let pauseTimer = 0;
+    const cancelPause = () => {
+      if (pauseTimer) {
+        window.clearTimeout(pauseTimer);
+        pauseTimer = 0;
+      }
+    };
+
     const handleTargetFound = (event: Event) => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
+      cancelPause();
       held.add((event.currentTarget as HTMLElement | null)?.id ?? 'unknown');
       eventLogRef.current = [...eventLogRef.current.slice(-4), `found@${new Date().toISOString().slice(14, 19)}`];
       setTargetDetected(true);
@@ -358,8 +381,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       held.delete((event.currentTarget as HTMLElement | null)?.id ?? 'unknown');
       if (held.size > 0) return;
       setTargetDetected(false);
-      setStatus('Video continues playing. Point camera at stamp or pin to re-anchor.');
-      // Don't pause — let the video keep playing even when target is lost
+      setStatus('Paused. Point the camera back at the stamp or pin badge to continue.');
+      cancelPause();
+      pauseTimer = window.setTimeout(() => {
+        pauseTimer = 0;
+        // Re-check: an anchor may have come back inside the grace window.
+        if (held.size === 0 && !video.paused) video.pause();
+      }, TARGET_LOST_PAUSE_MS);
     };
 
     targetEntity?.addEventListener('targetFound', handleTargetFound);
@@ -368,6 +396,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     targetEntityPin?.addEventListener('targetLost', handleTargetLost);
 
     return () => {
+      cancelPause();
       targetEntity?.removeEventListener('targetFound', handleTargetFound);
       targetEntity?.removeEventListener('targetLost', handleTargetLost);
       targetEntityPin?.removeEventListener('targetFound', handleTargetFound);
@@ -482,6 +511,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     setStatus('Loading camera. If prompted, allow camera access.');
     videoSoundEnabledRef.current = false;
     setVideoSoundEnabled(false);
+    setVideoFallbackRequested(false);
     setScannerRequested(true);
   };
 
@@ -571,9 +601,9 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         {!scannerRequested && !showDirectVideo && (
           <div className="absolute inset-0 z-40 flex items-center justify-center px-6 py-10">
             <div className="w-full max-w-sm rounded-[2rem] border border-white/15 bg-black/72 p-6 text-center shadow-2xl backdrop-blur-xl">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp</p>
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Scan the stamp or pin badge</p>
               <h1 className="mt-4 text-3xl font-black leading-tight tracking-[-0.04em] text-white">Open camera and scan</h1>
-              <p className="mt-4 text-sm leading-6 text-white/70">Tap Start camera, allow camera access, then point your phone at the stamp. The video will play on the stamp.</p>
+              <p className="mt-4 text-sm leading-6 text-white/70">Tap Start camera, allow camera access, then point your phone at the stamp or the pin badge. The video will play on it.</p>
 
               {inAppBrowser && (
                 <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-left text-xs leading-5 text-amber-200">
@@ -584,6 +614,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
               <button type="button" onClick={handleStartScanner} className="mt-6 w-full rounded-full bg-cyan px-6 py-4 text-sm font-black uppercase tracking-[0.18em] text-ink shadow-[0_0_28px_rgba(93,231,255,0.45)] transition hover:bg-white">
                 Start camera
               </button>
+              {/* Kept for phones where the camera or AR will not run at all, and for anyone who
+                  arrived without the physical stamp or badge in hand. */}
+              {hasVideo && (
+                <button type="button" onClick={(event) => { event.stopPropagation(); setVideoFallbackRequested(true); }} className="mt-3 w-full rounded-full border border-white/20 px-6 py-3 text-xs font-bold uppercase tracking-[0.16em] text-white/70 transition hover:bg-white/10 hover:text-white">
+                  Watch the video instead
+                </button>
+              )}
             </div>
           </div>
         )}

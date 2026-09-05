@@ -4,14 +4,6 @@ import { getPublishedArCampaignContent } from '@/lib/ar-campaign-store';
 
 export const dynamic = 'force-dynamic';
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-function getEntryMode(searchParams: Record<string, string | string[] | undefined> | undefined) {
-  const value = searchParams?.mode;
-  const mode = Array.isArray(value) ? value[0] : value;
-  return mode === 'video' ? 'video' : 'scanner';
-}
-
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const content = await getPublishedArCampaignContent(slug, 'en');
@@ -27,9 +19,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function ScanCampaignPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: SearchParams }) {
-  const [{ slug }, resolvedSearchParams] = await Promise.all([params, searchParams ?? Promise.resolve({})]);
+// /scan always opens the camera. The printed QR codes carry ?mode=video and cannot be reprinted,
+// but the flow they are meant to start is QR -> Start camera -> scan the stamp or the pin badge ->
+// the video plays on the object, so honouring that parameter here skipped the AR entirely. The
+// plain player is still one tap away behind "Watch the video instead", and /player/[slug] remains
+// the route that plays the video outright.
+export default async function ScanCampaignPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   const content = await getPublishedArCampaignContent(slug, 'en');
 
-  return <WebArPlayer content={content} entryMode={getEntryMode(resolvedSearchParams)} />;
+  return <WebArPlayer content={content} entryMode="scanner" />;
 }
