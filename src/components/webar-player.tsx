@@ -8,6 +8,21 @@ const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
 const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.4.2/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
+const JSQR_SCRIPT_ID = 'jsqr-runtime-script';
+const JSQR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+
+// The entry QR code is printed with the OSAKA stamp artwork inside it, so the image tracker sees
+// a stamp when the camera is pointed at the QR - it is the same artwork - and starts the video
+// before the user has aimed at anything. No feature-based rule can separate the two, and a decoy
+// target compiled from the QR was measured matching the *real* stamp as well, which would suppress
+// genuine scans. So the discriminator is the one signal the stamp does not carry: the QR's own
+// finder patterns. While a QR is decodable in frame the overlay is held back, and the suppression
+// decays shortly after the code leaves the shot so aiming at the stamp starts playing at once.
+const QR_SUPPRESS_MS = 1200;
+const QR_SAMPLE_INTERVAL_MS = 300;
+const QR_SAMPLE_WIDTH = 360;
+const qrSuppression = { until: 0 };
+const isQrSuppressed = () => Date.now() < qrSuppression.until;
 // Measured in target widths: MindAR normalises every target to one unit across, so these numbers
 // are how many stamp-widths (or badge-widths) of video sit over the object. The pin badge is only
 // about 40mm, so at the old 2.05 the video came out physically small on screen - you had to get
@@ -148,7 +163,8 @@ function registerDampedAnchor() {
       // Hysteresis: hold the anchor already being followed while it stays visible.
       const heldId = this.following && visible(this.following) ? this.following : null;
       const activeId = heldId ?? this.ids.find((id) => visible(id)) ?? null;
-      const src = activeId ? visible(activeId) : null;
+      // A QR in shot means the camera is aimed at the entry code, not at the stamp or the badge.
+      const src = activeId && !isQrSuppressed() ? visible(activeId) : null;
       const dst = this.el.object3D;
 
       dst.visible = src !== null;
@@ -245,6 +261,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const playErrorRef = useRef<string>('none');
   const eventLogRef = useRef<string[]>([]);
+  const qrSeenRef = useRef<number>(0);
   const canRunCameraScanner = content.app.trackingMode === 'image-target' && hasTrackingData && hasVideo;
   const targetMindSrc = content.app.trackingDataUrl;
   const sceneConfig = useMemo(
@@ -309,8 +326,14 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       })
       .then(() => {
         if (cancelled) return;
+        // Best effort: if the QR reader will not load, the scanner still works, it just loses the
+        // guard against the entry code triggering the video.
+        return loadScript(JSQR_SCRIPT_ID, JSQR_SCRIPT_SRC).catch(() => undefined);
+      })
+      .then(() => {
+        if (cancelled) return;
         setRuntimeReady(true);
-        setStatus('Camera is ready. Keep the stamp flat and inside the frame.');
+        setStatus('Camera is ready. Point it at the stamp or the pin badge.');
       })
       .catch((err) => {
         if (cancelled) return;
@@ -361,8 +384,19 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     const handleTargetFound = (event: Event) => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
-      cancelPause();
       held.add((event.currentTarget as HTMLElement | null)?.id ?? 'unknown');
+
+      // Pointing at the entry QR matches the stamp, because the stamp artwork is printed inside
+      // the code. Only the physical stamp and pin badge play the video.
+      if (isQrSuppressed()) {
+        eventLogRef.current = [...eventLogRef.current.slice(-4), `qr-blocked@${new Date().toISOString().slice(14, 19)}`];
+        setTargetDetected(false);
+        setStatus('That is the QR code. Point the camera at the OSAKA stamp or the pin badge.');
+        if (!video.paused) video.pause();
+        return;
+      }
+
+      cancelPause();
       eventLogRef.current = [...eventLogRef.current.slice(-4), `found@${new Date().toISOString().slice(14, 19)}`];
       setTargetDetected(true);
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
@@ -408,6 +442,59 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       targetEntityPin?.removeEventListener('targetLost', handleTargetLost);
     };
   }, [content.app.videoPlayback, runtimeReady, scannerRequested]);
+
+  // Watches the camera feed for the entry QR code and holds the overlay back while one is in
+  // shot. Sampling a downscaled frame a few times a second is enough - the code only has to be
+  // seen, not tracked - and keeps the cost off the tracking loop.
+  useEffect(() => {
+    if (!runtimeReady || !scannerRequested) return;
+    const jsQR = (window as unknown as { jsQR?: (d: Uint8ClampedArray, w: number, h: number, o?: unknown) => unknown }).jsQR;
+    if (typeof jsQR !== 'function') return;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const cameraVideo = () => {
+      const root = document.getElementById('purewells-scanner-stage');
+      if (!root) return null;
+      return Array.from(root.querySelectorAll('video')).find(
+        (v) => !['purewells-ar-video', 'purewells-direct-video'].includes(v.id) && v.videoWidth > 0
+      ) ?? null;
+    };
+
+    const sample = () => {
+      const video = cameraVideo();
+      if (!video) return;
+      const w = QR_SAMPLE_WIDTH;
+      const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
+      canvas.width = w;
+      canvas.height = h;
+      try {
+        ctx.drawImage(video, 0, 0, w, h);
+        const { data } = ctx.getImageData(0, 0, w, h);
+        if (jsQR(data, w, h, { inversionAttempts: 'dontInvert' })) {
+          qrSuppression.until = Date.now() + QR_SUPPRESS_MS;
+          qrSeenRef.current = Date.now();
+          // Also covers the QR drifting into shot after the stamp has already been acquired.
+          const arVideo = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
+          if (arVideo && !arVideo.paused) {
+            arVideo.pause();
+            setTargetDetected(false);
+            setStatus('That is the QR code. Point the camera at the OSAKA stamp or the pin badge.');
+          }
+        }
+      } catch {
+        // A frame that is not ready yet, or a tainted canvas; skip it.
+      }
+    };
+
+    const id = window.setInterval(sample, QR_SAMPLE_INTERVAL_MS);
+    return () => {
+      window.clearInterval(id);
+      qrSuppression.until = 0;
+    };
+  }, [runtimeReady, scannerRequested]);
 
   useEffect(() => {
     if (!runtimeReady || !scannerRequested) return;
@@ -492,6 +579,8 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         })
         .join(' ');
       lines.push(`anchors: ${anchorState}`);
+      const sinceQr = qrSeenRef.current ? `${((Date.now() - qrSeenRef.current) / 1000).toFixed(1)}s ago` : 'never';
+      lines.push(`qr: reader=${typeof (window as unknown as { jsQR?: unknown }).jsQR === 'function' ? 'yes' : 'NO'} seen=${sinceQr} blocking=${isQrSuppressed() ? 'YES' : 'no'}`);
       if (!v) {
         lines.push('AR VIDEO ELEMENT: MISSING');
       } else {
