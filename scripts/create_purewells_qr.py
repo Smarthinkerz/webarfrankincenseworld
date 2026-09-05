@@ -3,8 +3,11 @@ from pathlib import Path
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
-SCAN_URL = "https://frankincenseworld.com/scan/purewells-wacandy-japan?mode=video"
-OUTPUT_DIR = Path("/home/ubuntu/ar-vision-studio-local/public/ar-entry")
+# The QR only opens the camera. The video belongs to the physical objects: it plays once the
+# camera is pointed at the stamp or the pin badge, not on arrival. The old value carried
+# ?mode=video, which opened the plain video player and skipped the AR entirely.
+SCAN_URL = "https://www.frankincenseworld.com/"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "public" / "ar-entry"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 qr = qrcode.QRCode(
@@ -32,7 +35,7 @@ try:
 except OSError:
     title_font = body_font = small_font = ImageFont.load_default()
 
-lines = ["Purewells Wacandy Japan", "Scan to open the video"]
+lines = ["Purewells Wacandy Japan", "Scan to open the camera"]
 y = 48
 for i, line in enumerate(lines):
     font = title_font if i == 0 else body_font
@@ -42,8 +45,8 @@ for i, line in enumerate(lines):
 
 canvas.paste(qr_img, (padding, header_height))
 footer_lines = [
-    "This opens the Purewells video directly.",
-    "Tap Open AR scanner only when testing target detection.",
+    "Opens the camera. Tap Start camera and allow access.",
+    "Point it at the OSAKA stamp or the pin badge to play the video.",
 ]
 y = header_height + qr_img.height + 42
 for line in footer_lines:
