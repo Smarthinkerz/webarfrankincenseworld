@@ -57,7 +57,7 @@ type AframeGlobal = {
 
 type DampedAnchor = {
   data: {
-    target: string;
+    targets: string;
     minPosition: number; maxPosition: number;
     minRotation: number; maxRotation: number;
     positionErrorRef: number; rotationErrorRef: number;
@@ -66,6 +66,8 @@ type DampedAnchor = {
   pos: Vec3Like; quat: QuatLike; scl: Vec3Like;
   tPos: Vec3Like; tQuat: QuatLike; tScl: Vec3Like;
   settled: boolean;
+  ids: string[];
+  following: string | null;
 };
 
 // MindAR writes the tracked pose straight into el.object3D.matrix (matrixAutoUpdate is off), so
@@ -86,6 +88,14 @@ type DampedAnchor = {
 // heavily damped floor, and the response only opens up once the target has genuinely moved.
 // Rotation keeps the heavier hand: angular jitter is what the eye catches on a plane wider than
 // the target itself. Detection never sees this stage, so damping cannot cause a lost target.
+//
+// One damper follows several anchors, because the stamp and the pin badge are the same artwork
+// and cross-match: whichever of the two MindAR happens to lock, the overlay is identical, and
+// MindAR normalises every target to one unit wide so the plane sizes itself the same either way.
+// Following the live anchor therefore makes a mis-attributed lock harmless instead of stranding
+// the video on an anchor that is not the object the camera is pointed at. It also stops the two
+// anchors drawing the same video twice now that maxTrack is 2. Ties keep the anchor already being
+// followed, so a target that both anchors claim does not flip the overlay between them.
 let dampedAnchorRegistered = false;
 
 function registerDampedAnchor() {
@@ -101,7 +111,8 @@ function registerDampedAnchor() {
 
   aframe.registerComponent('damped-anchor', {
     schema: {
-      target: { type: 'string' },
+      // Comma-separated anchor ids, in preference order.
+      targets: { type: 'string' },
       minPosition: { type: 'number', default: 0.10 },
       maxPosition: { type: 'number', default: 0.60 },
       minRotation: { type: 'number', default: 0.05 },
@@ -118,18 +129,32 @@ function registerDampedAnchor() {
       this.tQuat = new THREE.Quaternion();
       this.tScl = new THREE.Vector3(1, 1, 1);
       this.settled = false;
+      this.following = null;
+      this.ids = this.data.targets.split(',').map((id) => id.trim()).filter(Boolean);
       this.el.object3D.matrixAutoUpdate = false;
     },
     tick(this: DampedAnchor) {
-      const src = (document.getElementById(this.data.target) as AnchorElement | null)?.object3D;
+      const visible = (id: string) => {
+        const object3D = (document.getElementById(id) as AnchorElement | null)?.object3D;
+        return object3D && object3D.visible ? object3D : null;
+      };
+      // Hysteresis: hold the anchor already being followed while it stays visible.
+      const heldId = this.following && visible(this.following) ? this.following : null;
+      const activeId = heldId ?? this.ids.find((id) => visible(id)) ?? null;
+      const src = activeId ? visible(activeId) : null;
       const dst = this.el.object3D;
-      if (!src) return;
 
-      dst.visible = src.visible;
-      if (!src.visible) {
+      dst.visible = src !== null;
+      if (!src) {
         // Re-seed on the next acquisition so the overlay never eases in from a stale pose.
         this.settled = false;
+        this.following = null;
         return;
+      }
+      if (activeId !== this.following) {
+        // Handing over between anchors is an acquisition, not motion to ease through.
+        this.following = activeId;
+        this.settled = false;
       }
 
       src.matrix.decompose(this.tPos, this.tQuat, this.tScl);
@@ -214,10 +239,22 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       // One-euro filter: cutoff = filterMinCF + filterBeta * |velocity|.
       // MindAR defaults (0.001 / 1000) let hand tremor through almost unfiltered, which is the
       // shaky overlay. With beta near zero the cutoff stays at filterMinCF regardless of motion,
-      // so the pose is heavily damped and the overlay sits still; warmupTolerance above the default 5
-      // stops the overlay popping in on a single noisy frame, and a high missTolerance keeps it
-      // from flickering out during brief occlusion.
-      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; filterMinCF: 0.0001; filterBeta: 1; warmupTolerance: 5; missTolerance: 50`,
+      // so the pose is heavily damped and the overlay sits still, and a high missTolerance keeps
+      // it from flickering out during brief occlusion.
+      //
+      // maxTrack must be 2, not MindAR's default 1. The stamp and the pin badge carry the same
+      // artwork, so the stamp's descriptors match a photo of the pin badge in most realistic
+      // framings. MindAR's worker walks the target indexes in ascending order and stops at the
+      // first hit, so scanning the pin very often locks target 0. At maxTrack 1 that lock also
+      // suspends detection entirely, and the pin's own target never gets a look-in until the
+      // wrong lock decays. Allowing both to track removes that dead end.
+      //
+      // warmupTolerance stays at 1 (MindAR's default is 5). It gates targetFound on N+1
+      // consecutive *tracked* frames, and the pin badge is domed, gold and specular, so its
+      // tracking drops in and out where the flat printed stamp's does not - a high warmup is a
+      // barrier for the pin alone. The reason it was raised, an overlay popping in on one noisy
+      // frame, is now handled by damped-anchor, which eases the overlay in from each acquisition.
+      `imageTargetSrc: ${targetMindSrc}; autoStart: true; uiScanning: yes; uiLoading: yes; uiError: yes; maxTrack: 2; filterMinCF: 0.0001; filterBeta: 1; warmupTolerance: 1; missTolerance: 50`,
     [targetMindSrc]
   );
   const showDirectVideo = opensInVideoMode && !runtimeReady;
@@ -289,9 +326,15 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     const video = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
     if (!video || (!targetEntity && !targetEntityPin)) return;
 
-    const handleTargetFound = () => {
+    // Both anchors can be live at once now that maxTrack is 2 and the two targets cross-match,
+    // so detection is a count, not a flag: one anchor dropping while the other still holds the
+    // object must not report the target as lost.
+    const held = new Set<string>();
+
+    const handleTargetFound = (event: Event) => {
       const shouldStartMuted = content.app.videoPlayback === 'autoplay-on-detect' && !videoSoundEnabledRef.current;
 
+      held.add((event.currentTarget as HTMLElement | null)?.id ?? 'unknown');
       eventLogRef.current = [...eventLogRef.current.slice(-4), `found@${new Date().toISOString().slice(14, 19)}`];
       setTargetDetected(true);
       setStatus(shouldStartMuted ? 'Target detected. Video is playing. Tap Enable sound for audio.' : 'Target detected. Video is playing with sound.');
@@ -311,7 +354,9 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       }
     };
 
-    const handleTargetLost = () => {
+    const handleTargetLost = (event: Event) => {
+      held.delete((event.currentTarget as HTMLElement | null)?.id ?? 'unknown');
+      if (held.size > 0) return;
       setTargetDetected(false);
       setStatus('Video continues playing. Point camera at stamp or pin to re-anchor.');
       // Don't pause — let the video keep playing even when target is lost
@@ -404,6 +449,15 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       lines.push(`UA ${navigator.userAgent.slice(0, 68)}`);
       lines.push(`secure=${String(window.isSecureContext)} aframe=${aframe ? 'yes' : 'NO'} damped=${aframe?.components?.['damped-anchor'] ? 'yes' : 'NO'}`);
       lines.push(`sceneLoaded=${String(scene?.hasLoaded)} videoEls=${camVideos}`);
+      // Which anchor is actually live tells stamp-vs-pin apart on a real device: the two targets
+      // carry the same artwork, so a pin scan can light the stamp anchor and vice versa.
+      const anchorState = ['purewells-ar-target', 'purewells-ar-target-pin']
+        .map((id) => {
+          const el = document.getElementById(id) as (HTMLElement & { object3D?: { visible: boolean } }) | null;
+          return `${id.endsWith('-pin') ? 'pin' : 'stamp'}=${el?.object3D ? (el.object3D.visible ? 'ON' : 'off') : 'n/a'}`;
+        })
+        .join(' ');
+      lines.push(`anchors: ${anchorState}`);
       if (!v) {
         lines.push('AR VIDEO ELEMENT: MISSING');
       } else {
@@ -479,10 +533,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             <a-camera position="0 0 0" look-controls="enabled: false" />
             <a-entity id="purewells-ar-target" mindar-image-target="targetIndex: 0" />
             <a-entity id="purewells-ar-target-pin" mindar-image-target="targetIndex: 1" />
-            <a-entity damped-anchor="target: purewells-ar-target; minPosition: 0.12; minRotation: 0.06">
-              <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
-            </a-entity>
-            <a-entity damped-anchor="target: purewells-ar-target-pin; minPosition: 0.06; minRotation: 0.025; maxPosition: 0.65; maxRotation: 0.55">
+            <a-entity damped-anchor="targets: purewells-ar-target-pin, purewells-ar-target; minPosition: 0.08; minRotation: 0.035; maxPosition: 0.65; maxRotation: 0.55">
               <a-video src="#purewells-ar-video" position="0 0 0.01" width={AR_VIDEO_OVERLAY_WIDTH} height={AR_VIDEO_OVERLAY_HEIGHT} rotation="0 0 0" material="shader: flat" />
             </a-entity>
           </a-scene>
@@ -552,6 +603,14 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
             {targetDetected && !videoSoundEnabled && (
               <button type="button" onClick={(event) => { event.stopPropagation(); handleVideoTap(); }} className="pointer-events-auto mt-3 w-full rounded-full bg-white px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-ink hover:bg-cyan">
                 Enable sound / サウンドON
+              </button>
+            )}
+            {/* The printed QR code points at ?mode=video, which lands on the plain video player.
+                Without this the scanner is unreachable from the QR - the only entry point most
+                people ever use - so neither the stamp nor the pin badge can be scanned at all. */}
+            {showDirectVideo && canRunCameraScanner && (
+              <button type="button" onClick={(event) => { event.stopPropagation(); handleStartScanner(); }} className="pointer-events-auto mt-3 w-full rounded-full border border-cyan/40 bg-cyan/15 px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-cyan hover:bg-cyan hover:text-ink">
+                Open AR scanner / スキャン
               </button>
             )}
           </div>
