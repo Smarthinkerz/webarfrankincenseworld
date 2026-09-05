@@ -8,8 +8,13 @@ const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
 const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.4.2/aframe.min.js';
 const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
-const AR_VIDEO_OVERLAY_WIDTH = 2.05;
-const AR_VIDEO_OVERLAY_HEIGHT = 1.153125;
+// Measured in target widths: MindAR normalises every target to one unit across, so these numbers
+// are how many stamp-widths (or badge-widths) of video sit over the object. The pin badge is only
+// about 40mm, so at the old 2.05 the video came out physically small on screen - you had to get
+// close before it read as anything. 2.8 keeps it anchored to the object while giving it enough
+// presence to watch at arm's length. The video is 1920x1080, so the height holds 16:9.
+const AR_VIDEO_OVERLAY_WIDTH = 2.8;
+const AR_VIDEO_OVERLAY_HEIGHT = 1.575;
 // Grace period between losing every anchor and pausing the video.
 const TARGET_LOST_PAUSE_MS = 700;
 
