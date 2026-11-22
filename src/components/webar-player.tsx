@@ -569,6 +569,15 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
 
   useEffect(() => {
     if (!debugMode) return;
+    // Device side errors are invisible on a phone, so the debug panel shows the first few.
+    const errors: string[] = [];
+    const remember = (msg: string) => { if (errors.length < 4) errors.push(msg.slice(0, 140)); };
+    const onError = (e: ErrorEvent) => remember(`err: ${e.message}`);
+    const onRejection = (e: PromiseRejectionEvent) => remember(`rej: ${String((e.reason && (e.reason.name || e.reason.message)) || e.reason)}`);
+    const onArError = (e: Event) => remember(`arError: ${JSON.stringify((e as CustomEvent).detail ?? null)}`);
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    document.addEventListener('arError', onArError, true);
     const tick = () => {
       const v = document.getElementById('purewells-ar-video') as HTMLVideoElement | null;
       const scene = document.getElementById('purewells-ar-scene') as (HTMLElement & { hasLoaded?: boolean }) | null;
@@ -598,11 +607,23 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
         lines.push(`playErr=${playErrorRef.current}`);
       }
       lines.push(`events: ${eventLogRef.current.join(' ') || '(none yet)'}`);
+      if (scene && !scene.hasLoaded) {
+        const waiting = Array.from(scene.querySelectorAll('*'))
+          .filter((el) => el.tagName.startsWith('A-') && !(el as HTMLElement & { hasLoaded?: boolean }).hasLoaded)
+          .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''));
+        lines.push(`waiting: ${waiting.join(' ') || '(none)'}`);
+      }
+      lines.push(`errors: ${errors.join(' | ') || '(none)'}`);
       setDiagnostics(lines);
     };
     tick();
     const id = window.setInterval(tick, 700);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+      document.removeEventListener('arError', onArError, true);
+    };
   }, [debugMode, runtimeReady, scannerRequested]);
 
   const handleStartScanner = () => {
