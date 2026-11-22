@@ -338,6 +338,18 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       })
       .then(() => {
         if (cancelled) return;
+        // A-Frame defers <a-scene> until document.readyState is "complete". If the scene mounts
+        // before that, its children can start before the scene has created its systems, which is
+        // the Chrome on iPhone failure. Mount only once the document has fully loaded (bounded).
+        if (document.readyState === 'complete') return;
+        return new Promise<void>((resolve) => {
+          const done = () => { if (document.readyState === 'complete') { document.removeEventListener('readystatechange', done); resolve(); } };
+          document.addEventListener('readystatechange', done);
+          window.setTimeout(() => { document.removeEventListener('readystatechange', done); resolve(); }, 6000);
+        });
+      })
+      .then(() => {
+        if (cancelled) return;
         setRuntimeReady(true);
         setStatus('Camera is ready. Point it at the stamp or the pin badge.');
       })
@@ -599,7 +611,7 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
       const lines: string[] = [];
       lines.push(`UA ${navigator.userAgent.slice(0, 68)}`);
       lines.push(`secure=${String(window.isSecureContext)} aframe=${aframe ? 'yes' : 'NO'} damped=${aframe?.components?.['damped-anchor'] ? 'yes' : 'NO'}`);
-      lines.push(`sceneLoaded=${String(scene?.hasLoaded)} videoEls=${camVideos}`);
+      lines.push(`sceneLoaded=${String(scene?.hasLoaded)} videoEls=${camVideos} doc=${document.readyState} systems=${Object.keys((scene as unknown as { systems?: object })?.systems ?? {}).length}`);
       // Which anchor is actually live tells stamp-vs-pin apart on a real device: the two targets
       // carry the same artwork, so a pin scan can light the stamp anchor and vice versa.
       const anchorState = ['purewells-ar-target', 'purewells-ar-target-pin']
