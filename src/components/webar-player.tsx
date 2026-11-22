@@ -571,8 +571,17 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!debugMode) return;
     // Device side errors are invisible on a phone, so the debug panel shows the first few.
     const errors: string[] = [];
-    const remember = (msg: string) => { if (errors.length < 2 && !errors.includes(msg.slice(0, 260))) errors.push(msg.slice(0, 260)); };
-    const onError = (e: ErrorEvent) => remember(`err: ${e.message}`);
+    const remember = (msg: string) => {
+      const m = msg.slice(0, 220);
+      if (errors.includes(m)) return;
+      // Thrown errors come first: the scene's own start-up failure is what leaves the rest broken.
+      if (m.startsWith('err:')) errors.unshift(m); else errors.push(m);
+      errors.length = Math.min(errors.length, 3);
+    };
+    const onError = (e: ErrorEvent) => {
+      const where = ((e.error && e.error.stack) || `${e.filename}:${e.lineno}`).split('\n').slice(0, 2).join(' / ').replace(/https?:\/\/[^/]+/g, '');
+      remember(`err: ${e.message} @ ${where}`);
+    };
     const onRejection = (e: PromiseRejectionEvent) => {
       const r = e.reason as { name?: string; message?: string; stack?: string } | undefined;
       const where = (r?.stack || '').split('\n').slice(0, 2).join(' / ').replace(/https?:\/\/[^/]+/g, '');
