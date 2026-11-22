@@ -4,8 +4,9 @@ import type { ArVideoPlayback, CmsContent } from './cms-schema';
 import type { Locale } from './locales';
 
 const PUREWELLS_SLUG = 'purewells-wacandy-japan';
-const PUREWELLS_TARGET_IMAGE_URL = 'https://sotwadzvuuqvzncmtjqg.supabase.co/storage/v1/object/public/ar-targets/Owa%20Stamp%20EXPO.png';
-const PUREWELLS_VIDEO_URL = 'https://sotwadzvuuqvzncmtjqg.supabase.co/storage/v1/object/public/ar-videos/purewells-video.mp4';
+// Served from this site on Vercel so the stamp never depends on Supabase Storage being up.
+const PUREWELLS_TARGET_IMAGE_URL = '/ar-targets/purewells-target.png';
+const PUREWELLS_VIDEO_URL = '/ar-videos/purewells-video.mp4';
 const PUREWELLS_TRACKING_DATA_URL = '/ar-tracking/purewells-tracking.mind';
 
 const PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
@@ -155,11 +156,11 @@ function purewellsFallbackContent(locale: Locale): CmsContent {
       overlays: [
         {
           title: 'Target image is live',
-          body: 'The public Supabase Storage target image is connected and ready for the campaign scan experience.'
+          body: 'The target image is connected and ready for the campaign scan experience.'
         },
         {
           title: 'Video asset is live',
-          body: 'The public Supabase Storage video is connected and ready to play when the scan target is detected.'
+          body: 'The campaign video is connected and ready to play when the scan target is detected.'
         },
         {
           title: 'Image tracking is ready',
@@ -210,10 +211,11 @@ function mapRowToCmsContent(row: ArCampaignRow, locale: Locale): CmsContent {
       instructions: normalizeString(row.instructions) || fallback.app.instructions,
       targetLabel: normalizeString(row.target_label) || fallback.app.targetLabel,
       trackingMode: row.tracking_mode === 'manual-preview' || row.tracking_mode === 'manual_preview' ? 'manual-preview' : 'image-target',
-      targetImageUrl: normalizeString(row.target_image_url) || fallback.app.targetImageUrl,
+      // Purewells assets are bundled with the site; a CMS row must not point them back at a paused store.
+      targetImageUrl: row.slug === PUREWELLS_SLUG ? PUREWELLS_TARGET_IMAGE_URL : normalizeString(row.target_image_url) || fallback.app.targetImageUrl,
       targetImageAlt: normalizeString(row.target_image_alt) || fallback.app.targetImageAlt,
       trackingDataUrl,
-      videoUrl: normalizeString(row.video_url),
+      videoUrl: row.slug === PUREWELLS_SLUG ? PUREWELLS_VIDEO_URL : normalizeString(row.video_url),
       videoPosterUrl: normalizeString(row.video_poster_url) || fallback.app.videoPosterUrl,
       videoTitle: normalizeString(row.video_title) || fallback.app.videoTitle,
       videoPlayback: normalizePlayback(row.playback_mode || row.video_playback),
