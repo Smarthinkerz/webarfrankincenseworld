@@ -571,9 +571,13 @@ export function WebArPlayer({ content, entryMode = 'scanner' }: { content: CmsCo
     if (!debugMode) return;
     // Device side errors are invisible on a phone, so the debug panel shows the first few.
     const errors: string[] = [];
-    const remember = (msg: string) => { if (errors.length < 4) errors.push(msg.slice(0, 140)); };
+    const remember = (msg: string) => { if (errors.length < 2 && !errors.includes(msg.slice(0, 260))) errors.push(msg.slice(0, 260)); };
     const onError = (e: ErrorEvent) => remember(`err: ${e.message}`);
-    const onRejection = (e: PromiseRejectionEvent) => remember(`rej: ${String((e.reason && (e.reason.name || e.reason.message)) || e.reason)}`);
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const r = e.reason as { name?: string; message?: string; stack?: string } | undefined;
+      const where = (r?.stack || '').split('\n').slice(0, 2).join(' / ').replace(/https?:\/\/[^/]+/g, '');
+      remember(`rej: ${r?.name ?? ''} ${r?.message ?? String(e.reason)} @ ${where}`);
+    };
     const onArError = (e: Event) => remember(`arError: ${JSON.stringify((e as CustomEvent).detail ?? null)}`);
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
