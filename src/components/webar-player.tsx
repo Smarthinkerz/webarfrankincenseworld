@@ -6,10 +6,10 @@ import type { CmsContent } from '@/lib/cms-schema';
 
 const AFRAME_SCRIPT_ID = 'aframe-runtime-script';
 const MINDAR_SCRIPT_ID = 'mindar-image-aframe-runtime-script';
-const AFRAME_SCRIPT_SRC = 'https://aframe.io/releases/1.4.2/aframe.min.js';
-const MINDAR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js';
+const AFRAME_SCRIPT_SRC = '/vendor/aframe-1.4.2.min.js';
+const MINDAR_SCRIPT_SRC = '/vendor/mindar-image-aframe-1.2.5.prod.js';
 const JSQR_SCRIPT_ID = 'jsqr-runtime-script';
-const JSQR_SCRIPT_SRC = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+const JSQR_SCRIPT_SRC = '/vendor/jsqr-1.4.0.js';
 
 // The entry QR code is printed with the OSAKA stamp artwork inside it, so the image tracker sees
 // a stamp when the camera is pointed at the QR - it is the same artwork - and starts the video
